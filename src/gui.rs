@@ -1,6 +1,9 @@
 use crate::config::SpectrometerConfig;
 use crate::spectrum::Spectrum;
 use crate::CameraEvent;
+use biquad::{
+    Biquad, Coefficients, DirectForm2Transposed, Hertz, ToHertz, Type, Q_BUTTERWORTH_F32,
+};
 use egui::plot::{Legend, Line, Plot, Value, Values};
 use egui::{Color32, Context, Rect, Rounding, Stroke, TextureId, Vec2};
 use flume::{Receiver, Sender};
@@ -57,18 +60,7 @@ impl SpectrometerGui {
         }
 
         if let Ok(spectrum) = self.spectrum_rx.try_recv() {
-            let ncols = spectrum.ncols();
-            self.spectrum_buffer.insert(0, spectrum);
-            self.spectrum_buffer
-                .truncate(self.config.spectrum_filter_size);
-            self.spectrum = (self
-                .spectrum_buffer
-                .par_iter()
-                .cloned()
-                .reduce(|| Spectrum::from_element(ncols, 0.), |a, b| a + b)
-                / self.config.spectrum_filter_size as f32)
-                .data
-                .into();
+            self.update_spectrum(spectrum);
         }
 
         egui::TopBottomPanel::top("camera").show(ctx, |ui| {
@@ -134,5 +126,33 @@ impl SpectrometerGui {
                     plot_ui.line(spectrum);
                 });
         });
+    }
+
+    fn update_spectrum(&mut self, spectrum: Spectrum) {
+        let ncols = spectrum.ncols();
+        self.spectrum_buffer.insert(0, spectrum);
+        self.spectrum_buffer
+            .truncate(self.config.spectrum_buffer_size);
+        self.spectrum = (self
+            .spectrum_buffer
+            .par_iter()
+            .cloned()
+            .reduce(|| Spectrum::from_element(ncols, 0.), |a, b| a + b)
+            / self.config.spectrum_buffer_size as f32)
+            .data
+            .into();
+
+        if let Some(cutoff) = self.config.spectrum_filter_cutoff {
+            let cutoff = cutoff.clamp(0.001, 1.);
+            let fs: Hertz<f32> = 2.0.hz();
+            let f0: Hertz<f32> = cutoff.hz();
+
+            let coeffs =
+                Coefficients::<f32>::from_params(Type::LowPass, fs, f0, Q_BUTTERWORTH_F32).unwrap();
+            let mut biquad = DirectForm2Transposed::<f32>::new(coeffs);
+            for wl in self.spectrum.iter_mut() {
+                *wl = biquad.run(*wl);
+            }
+        }
     }
 }

@@ -94,19 +94,21 @@ pub struct SpectrometerConfig {
     pub camera_format: CameraFormat,
     pub image_config: ImageConfig,
     pub spectrum_calibration: SpectrumCalibration,
-    pub spectrum_filter_size: usize,
+    pub spectrum_buffer_size: usize,
+    pub spectrum_filter_cutoff: Option<f32>,
     pub view_config: ViewConfig,
 }
 
 impl Default for SpectrometerConfig {
     fn default() -> Self {
-        let camera_format = CameraFormat::new(Resolution::new(1920, 1080), FrameFormat::MJPEG, 30);
+        let camera_format = CameraFormat::new(Resolution::new(1280, 720), FrameFormat::MJPEG, 30);
         Self {
             camera_id: 0,
             camera_format,
             image_config: Default::default(),
             spectrum_calibration: Default::default(),
-            spectrum_filter_size: 10,
+            spectrum_buffer_size: 10,
+            spectrum_filter_cutoff: Some(1.0),
             view_config: Default::default(),
         }
     }
