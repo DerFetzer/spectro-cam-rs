@@ -54,30 +54,59 @@ impl SpectrometerGui {
         self.camera_config_tx.send(CameraEvent::StopStream).unwrap();
     }
 
-    pub fn update(&mut self, ctx: &Context) {
-        if self.camera_active {
-            ctx.request_repaint();
-        }
+    fn update_spectrum(&mut self, spectrum: Spectrum) {
+        let ncols = spectrum.ncols();
+        self.spectrum_buffer.insert(0, spectrum);
+        self.spectrum_buffer
+            .truncate(self.config.spectrum_buffer_size);
+        self.spectrum = (self
+            .spectrum_buffer
+            .par_iter()
+            .cloned()
+            .reduce(|| Spectrum::from_element(ncols, 0.), |a, b| a + b)
+            / self.config.spectrum_buffer_size as f32)
+            .data
+            .into();
 
-        if let Ok(spectrum) = self.spectrum_rx.try_recv() {
-            self.update_spectrum(spectrum);
-        }
+        if let Some(cutoff) = self.config.spectrum_filter_cutoff {
+            let cutoff = cutoff.clamp(0.001, 1.);
+            let fs: Hertz<f32> = 2.0.hz();
+            let f0: Hertz<f32> = cutoff.hz();
 
-        egui::TopBottomPanel::top("camera").show(ctx, |ui| {
-            let connect_button = ui.button(if self.camera_active {
-                "Stop..."
-            } else {
-                "Start..."
-            });
-            if connect_button.clicked() {
-                self.camera_active = !self.camera_active;
-                if self.camera_active {
-                    self.start_stream();
-                } else {
-                    self.stop_stream();
-                };
+            let coeffs =
+                Coefficients::<f32>::from_params(Type::LowPass, fs, f0, Q_BUTTERWORTH_F32).unwrap();
+            let mut biquad = DirectForm2Transposed::<f32>::new(coeffs);
+            for wl in self.spectrum.iter_mut() {
+                *wl = biquad.run(*wl);
             }
+        }
+    }
+
+    fn draw_spectrum(&mut self, ctx: &Context) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let spectrum = Line::new({
+                let calibration = self.config.spectrum_calibration;
+                Values::from_values(
+                    self.spectrum
+                        .par_iter()
+                        .enumerate()
+                        .map(|(i, p)| {
+                            let x = calibration.get_wavelength_from_index(i);
+                            let y = *p;
+                            Value::new(x, y)
+                        })
+                        .collect(),
+                )
+            });
+            Plot::new("Spectrum")
+                .legend(Legend::default())
+                .show(ui, |plot_ui| {
+                    plot_ui.line(spectrum);
+                });
         });
+    }
+
+    fn draw_camera_window(&mut self, ctx: &Context) {
         egui::Window::new("Camera").show(ctx, |ui| {
             let image_size = egui::Vec2::new(
                 self.config.camera_format.width() as f32,
@@ -105,54 +134,33 @@ impl SpectrometerGui {
                 )
             });
         });
-        egui::CentralPanel::default().show(ctx, |ui| {
-            let spectrum = Line::new({
-                let calibration = self.config.spectrum_calibration;
-                Values::from_values(
-                    self.spectrum
-                        .par_iter()
-                        .enumerate()
-                        .map(|(i, p)| {
-                            let x = calibration.get_wavelength_from_index(i);
-                            let y = *p;
-                            Value::new(x, y)
-                        })
-                        .collect(),
-                )
-            });
-            Plot::new("Spectrum")
-                .legend(Legend::default())
-                .show(ui, |plot_ui| {
-                    plot_ui.line(spectrum);
-                });
-        });
     }
 
-    fn update_spectrum(&mut self, spectrum: Spectrum) {
-        let ncols = spectrum.ncols();
-        self.spectrum_buffer.insert(0, spectrum);
-        self.spectrum_buffer
-            .truncate(self.config.spectrum_buffer_size);
-        self.spectrum = (self
-            .spectrum_buffer
-            .par_iter()
-            .cloned()
-            .reduce(|| Spectrum::from_element(ncols, 0.), |a, b| a + b)
-            / self.config.spectrum_buffer_size as f32)
-            .data
-            .into();
-
-        if let Some(cutoff) = self.config.spectrum_filter_cutoff {
-            let cutoff = cutoff.clamp(0.001, 1.);
-            let fs: Hertz<f32> = 2.0.hz();
-            let f0: Hertz<f32> = cutoff.hz();
-
-            let coeffs =
-                Coefficients::<f32>::from_params(Type::LowPass, fs, f0, Q_BUTTERWORTH_F32).unwrap();
-            let mut biquad = DirectForm2Transposed::<f32>::new(coeffs);
-            for wl in self.spectrum.iter_mut() {
-                *wl = biquad.run(*wl);
-            }
+    pub fn update(&mut self, ctx: &Context) {
+        if self.camera_active {
+            ctx.request_repaint();
         }
+
+        if let Ok(spectrum) = self.spectrum_rx.try_recv() {
+            self.update_spectrum(spectrum);
+        }
+
+        egui::TopBottomPanel::top("camera").show(ctx, |ui| {
+            let connect_button = ui.button(if self.camera_active {
+                "Stop..."
+            } else {
+                "Start..."
+            });
+            if connect_button.clicked() {
+                self.camera_active = !self.camera_active;
+                if self.camera_active {
+                    self.start_stream();
+                } else {
+                    self.stop_stream();
+                };
+            }
+        });
+        self.draw_camera_window(ctx);
+        self.draw_spectrum(ctx);
     }
 }
