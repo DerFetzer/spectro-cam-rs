@@ -28,5 +28,5 @@ approx = "0.5.1"
 confy = { git = 'https://github.com/rust-cli/confy' }
 
 [profile.release]
-lto = true
+lto = "thin"
 # debug = true

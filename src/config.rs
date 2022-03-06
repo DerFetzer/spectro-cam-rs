@@ -20,11 +20,21 @@ pub struct CameraControl {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
 pub struct ViewConfig {
     pub image_scale: f32,
+    pub draw_r: bool,
+    pub draw_g: bool,
+    pub draw_b: bool,
+    pub draw_combined: bool,
 }
 
 impl Default for ViewConfig {
     fn default() -> Self {
-        Self { image_scale: 0.25 }
+        Self {
+            image_scale: 0.25,
+            draw_r: true,
+            draw_g: true,
+            draw_b: true,
+            draw_combined: true,
+        }
     }
 }
 
@@ -40,8 +50,8 @@ impl Default for ImageConfig {
         Self {
             controls: Default::default(),
             window: SpectrumWindow {
-                offset: Vec2::new(0., 400.),
-                size: Vec2::new(1100., 120.),
+                offset: Vec2::new(100., 500.),
+                size: Vec2::new(1500., 1.),
             },
             flip: true,
         }
@@ -77,11 +87,11 @@ impl Default for SpectrumCalibration {
         Self {
             low: SpectrumCalibrationPoint {
                 wavelength: 436,
-                index: 50,
+                index: 261,
             },
             high: SpectrumCalibrationPoint {
                 wavelength: 546,
-                index: 100,
+                index: 486,
             },
         }
     }
@@ -101,14 +111,14 @@ pub struct SpectrometerConfig {
 
 impl Default for SpectrometerConfig {
     fn default() -> Self {
-        let camera_format = CameraFormat::new(Resolution::new(1280, 720), FrameFormat::MJPEG, 30);
+        let camera_format = CameraFormat::new(Resolution::new(1920, 1080), FrameFormat::MJPEG, 30);
         Self {
             camera_id: 0,
             camera_format,
             image_config: Default::default(),
             spectrum_calibration: Default::default(),
             spectrum_buffer_size: 10,
-            spectrum_filter_cutoff: Some(1.0),
+            spectrum_filter_cutoff: None,
             view_config: Default::default(),
         }
     }

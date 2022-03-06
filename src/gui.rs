@@ -4,8 +4,8 @@ use crate::CameraEvent;
 use biquad::{
     Biquad, Coefficients, DirectForm2Transposed, Hertz, ToHertz, Type, Q_BUTTERWORTH_F32,
 };
-use egui::plot::{Legend, Line, Plot, Value, Values};
-use egui::{Color32, Context, Rect, Rounding, Stroke, TextureId, Vec2};
+use egui::plot::{Legend, Line, Plot, VLine, Value, Values};
+use egui::{Color32, Context, Rect, Rounding, Slider, Stroke, TextureId, Vec2};
 use flume::{Receiver, Sender};
 use rayon::prelude::*;
 
@@ -13,7 +13,7 @@ pub struct SpectrometerGui {
     config: SpectrometerConfig,
     webcam_texture_id: TextureId,
     camera_active: bool,
-    spectrum: Vec<f32>,
+    spectrum: Spectrum,
     spectrum_buffer: Vec<Spectrum>,
     camera_config_tx: Sender<CameraEvent>,
     spectrum_rx: Receiver<Spectrum>,
@@ -25,11 +25,12 @@ impl SpectrometerGui {
         camera_config_tx: Sender<CameraEvent>,
         spectrum_rx: Receiver<Spectrum>,
     ) -> Self {
-        let config = confy::load("spectro-cam-rs", None).unwrap_or_default();
+        let config: SpectrometerConfig = confy::load("spectro-cam-rs", None).unwrap_or_default();
+        let spectrum_width = config.camera_format.width();
         Self {
             config,
             webcam_texture_id,
-            spectrum: Vec::new(),
+            spectrum: Spectrum::zeros(spectrum_width as usize),
             spectrum_buffer: Vec::new(),
             camera_active: false,
             camera_config_tx,
@@ -59,14 +60,12 @@ impl SpectrometerGui {
         self.spectrum_buffer.insert(0, spectrum);
         self.spectrum_buffer
             .truncate(self.config.spectrum_buffer_size);
-        self.spectrum = (self
+        self.spectrum = self
             .spectrum_buffer
             .par_iter()
             .cloned()
             .reduce(|| Spectrum::from_element(ncols, 0.), |a, b| a + b)
-            / self.config.spectrum_buffer_size as f32)
-            .data
-            .into();
+            / self.config.spectrum_buffer_size as f32;
 
         if let Some(cutoff) = self.config.spectrum_filter_cutoff {
             let cutoff = cutoff.clamp(0.001, 1.);
@@ -75,33 +74,69 @@ impl SpectrometerGui {
 
             let coeffs =
                 Coefficients::<f32>::from_params(Type::LowPass, fs, f0, Q_BUTTERWORTH_F32).unwrap();
-            let mut biquad = DirectForm2Transposed::<f32>::new(coeffs);
-            for wl in self.spectrum.iter_mut() {
-                *wl = biquad.run(*wl);
+            for mut channel in self.spectrum.row_iter_mut() {
+                let mut biquad = DirectForm2Transposed::<f32>::new(coeffs);
+                for sample in channel.iter_mut() {
+                    *sample = biquad.run(*sample);
+                }
             }
         }
     }
 
+    fn spectrum_channel_to_line(&mut self, channel_index: usize) -> Line {
+        Line::new({
+            let calibration = self.config.spectrum_calibration;
+            Values::from_values(
+                self.spectrum
+                    .row(channel_index)
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| {
+                        let x = calibration.get_wavelength_from_index(i);
+                        let y = *p;
+                        Value::new(x, y)
+                    })
+                    .collect(),
+            )
+        })
+    }
+
     fn draw_spectrum(&mut self, ctx: &Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            let spectrum = Line::new({
-                let calibration = self.config.spectrum_calibration;
-                Values::from_values(
-                    self.spectrum
-                        .par_iter()
-                        .enumerate()
-                        .map(|(i, p)| {
-                            let x = calibration.get_wavelength_from_index(i);
-                            let y = *p;
-                            Value::new(x, y)
-                        })
-                        .collect(),
-                )
-            });
             Plot::new("Spectrum")
                 .legend(Legend::default())
                 .show(ui, |plot_ui| {
-                    plot_ui.line(spectrum);
+                    if self.config.view_config.draw_r {
+                        plot_ui.line(
+                            self.spectrum_channel_to_line(0)
+                                .color(Color32::RED)
+                                .name("r"),
+                        );
+                    }
+                    if self.config.view_config.draw_g {
+                        plot_ui.line(
+                            self.spectrum_channel_to_line(1)
+                                .color(Color32::GREEN)
+                                .name("g"),
+                        );
+                    }
+                    if self.config.view_config.draw_b {
+                        plot_ui.line(
+                            self.spectrum_channel_to_line(2)
+                                .color(Color32::BLUE)
+                                .name("b"),
+                        );
+                    }
+                    if self.config.view_config.draw_combined {
+                        plot_ui.line(
+                            self.spectrum_channel_to_line(3)
+                                .color(Color32::LIGHT_GRAY)
+                                .name("sum"),
+                        );
+                    }
+
+                    plot_ui.vline(VLine::new(self.config.spectrum_calibration.low.wavelength));
+                    plot_ui.vline(VLine::new(self.config.spectrum_calibration.high.wavelength));
                 });
         });
     }
@@ -159,6 +194,36 @@ impl SpectrometerGui {
                     self.stop_stream();
                 };
             }
+            ui.add(
+                Slider::new(
+                    &mut self.config.spectrum_calibration.low.wavelength,
+                    200..=self.config.spectrum_calibration.high.wavelength - 1,
+                )
+                .text("Low Wavelength"),
+            );
+            ui.add(
+                Slider::new(
+                    &mut self.config.spectrum_calibration.low.index,
+                    0..=self.config.spectrum_calibration.high.index - 1,
+                )
+                .text("Low Index"),
+            );
+
+            ui.add(
+                Slider::new(
+                    &mut self.config.spectrum_calibration.high.wavelength,
+                    (self.config.spectrum_calibration.low.wavelength + 1)..=2000,
+                )
+                .text("High Wavelength"),
+            );
+            ui.add(
+                Slider::new(
+                    &mut self.config.spectrum_calibration.high.index,
+                    (self.config.spectrum_calibration.low.index + 1)
+                        ..=self.config.image_config.window.size.x as usize,
+                )
+                .text("High Index"),
+            );
         });
         self.draw_camera_window(ctx);
         self.draw_spectrum(ctx);

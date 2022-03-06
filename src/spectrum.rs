@@ -1,10 +1,10 @@
 use flume::{Receiver, Sender};
-use image::{ImageBuffer, Rgb};
-use nalgebra::{Dynamic, OMatrix, RowDVector, U1};
+use image::{ImageBuffer, Pixel, Rgb};
+use nalgebra::{Dynamic, OMatrix, U4};
 use rayon::prelude::*;
 use std::time::Duration;
 
-pub type Spectrum = RowDVector<f32>;
+pub type Spectrum = OMatrix<f32, U4, Dynamic>;
 
 pub struct SpectrumCalculator {
     window_rx: Receiver<ImageBuffer<Rgb<u8>, Vec<u8>>>,
@@ -26,24 +26,28 @@ impl SpectrumCalculator {
         loop {
             if let Ok(window) = self.window_rx.try_recv() {
                 let columns = window.width();
-                let max_value = columns * u8::MAX as u32;
-                let spectrum: OMatrix<f32, U1, Dynamic> = window
+                let rows = window.height();
+                let max_value = rows * u8::MAX as u32 * 3;
+
+                let spectrum: Spectrum = window
                     .rows()
                     .par_bridge()
                     .map(|r| {
-                        OMatrix::<f32, U1, Dynamic>::from_vec(
-                            {
-                                r.par_bridge()
-                                    .map(|p| p.0.into_iter().map(|sp| sp as f32).sum())
-                            }
+                        Spectrum::from_vec(
+                            r.flat_map(|p| {
+                                let pv =
+                                    p.channels().iter().map(|&v| v as f32).collect::<Vec<f32>>();
+                                [pv.as_slice(), &[pv.iter().sum()]].concat()
+                            })
                             .collect::<Vec<f32>>(),
                         )
                     })
                     .reduce(
-                        || OMatrix::<f32, U1, Dynamic>::from_element(columns as usize, 0.),
+                        || Spectrum::from_element(columns as usize, 0.),
                         |a, b| a + b,
                     )
                     / max_value as f32;
+
                 self.spectrum_tx.send(spectrum).unwrap();
             }
             std::thread::sleep(Duration::from_millis(1))
