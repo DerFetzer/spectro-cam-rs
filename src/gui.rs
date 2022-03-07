@@ -106,16 +106,20 @@ impl SpectrometerGui {
         }
         self.spectrum_buffer.insert(0, spectrum);
         self.spectrum_buffer
-            .truncate(self.config.spectrum_buffer_size);
+            .truncate(self.config.postprocessing_config.spectrum_buffer_size);
         self.spectrum = self
             .spectrum_buffer
             .par_iter()
             .cloned()
             .reduce(|| Spectrum::from_element(ncols, 0.), |a, b| a + b)
-            / self.config.spectrum_buffer_size as f32;
+            / self.config.postprocessing_config.spectrum_buffer_size as f32;
 
-        if let Some(cutoff) = self.config.spectrum_filter_cutoff {
-            let cutoff = cutoff.clamp(0.001, 1.);
+        if self.config.postprocessing_config.spectrum_filter_active {
+            let cutoff = self
+                .config
+                .postprocessing_config
+                .spectrum_filter_cutoff
+                .clamp(0.001, 1.);
             let fs: Hertz<f32> = 2.0.hz();
             let f0: Hertz<f32> = cutoff.hz();
 
@@ -236,7 +240,7 @@ impl SpectrometerGui {
                         .add(
                             Slider::new(
                                 &mut self.config.image_config.window.offset.x,
-                                0.0..=(self.config.camera_format.width() as f32 - 1.),
+                                1.0..=(self.config.camera_format.width() as f32 - 1.),
                             )
                             .step_by(1.)
                             .text("Offset X"),
@@ -246,7 +250,7 @@ impl SpectrometerGui {
                         .add(
                             Slider::new(
                                 &mut self.config.image_config.window.offset.y,
-                                0.0..=(self.config.camera_format.height() as f32 - 1.),
+                                1.0..=(self.config.camera_format.height() as f32 - 1.),
                             )
                             .step_by(1.)
                             .text("Offset Y"),
@@ -342,9 +346,39 @@ impl SpectrometerGui {
             });
     }
 
+    fn draw_postprocessing_window(&mut self, ctx: &Context) {
+        egui::Window::new("Postprocessing")
+            .open(&mut self.config.view_config.show_postprocessing_window)
+            .show(ctx, |ui| {
+                ui.add(
+                    Slider::new(
+                        &mut self.config.postprocessing_config.spectrum_buffer_size,
+                        1..=100,
+                    )
+                    .text("Averaging Buffer Size"),
+                );
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.checkbox(
+                        &mut self.config.postprocessing_config.spectrum_filter_active,
+                        "Low-Pass Filter",
+                    );
+                    ui.add_enabled(
+                        self.config.postprocessing_config.spectrum_filter_active,
+                        Slider::new(
+                            &mut self.config.postprocessing_config.spectrum_filter_cutoff,
+                            0.001..=1.,
+                        )
+                        .text("Cutoff"),
+                    );
+                });
+            });
+    }
+
     fn draw_windows(&mut self, ctx: &Context) {
         self.draw_camera_window(ctx);
         self.draw_calibration_window(ctx);
+        self.draw_postprocessing_window(ctx);
     }
 
     fn draw_connection_panel(&mut self, ctx: &Context) {
@@ -404,12 +438,16 @@ impl SpectrometerGui {
         });
     }
 
-    pub fn draw_window_selection_panel(&mut self, ctx: &Context) {
+    fn draw_window_selection_panel(&mut self, ctx: &Context) {
         egui::SidePanel::left("window_selection").show(ctx, |ui| {
             ui.checkbox(&mut self.config.view_config.show_camera_window, "Camera");
             ui.checkbox(
                 &mut self.config.view_config.show_calibration_window,
                 "Calibration",
+            );
+            ui.checkbox(
+                &mut self.config.view_config.show_postprocessing_window,
+                "Postprocessing",
             );
         });
     }

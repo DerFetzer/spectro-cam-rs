@@ -26,6 +26,7 @@ pub struct ViewConfig {
     pub draw_spectrum_combined: bool,
     pub show_camera_window: bool,
     pub show_calibration_window: bool,
+    pub show_postprocessing_window: bool,
 }
 
 impl Default for ViewConfig {
@@ -38,6 +39,7 @@ impl Default for ViewConfig {
             draw_spectrum_combined: true,
             show_camera_window: true,
             show_calibration_window: false,
+            show_postprocessing_window: false,
         }
     }
 }
@@ -102,14 +104,30 @@ impl Default for SpectrumCalibration {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PostprocessingConfig {
+    pub spectrum_buffer_size: usize,
+    pub spectrum_filter_active: bool,
+    pub spectrum_filter_cutoff: f32,
+}
+
+impl Default for PostprocessingConfig {
+    fn default() -> Self {
+        Self {
+            spectrum_buffer_size: 10,
+            spectrum_filter_active: false,
+            spectrum_filter_cutoff: 0.5,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SpectrometerConfig {
     pub camera_id: usize,
     #[serde(with = "CameraFormatDef")]
     pub camera_format: CameraFormat,
     pub image_config: ImageConfig,
     pub spectrum_calibration: SpectrumCalibration,
-    pub spectrum_buffer_size: usize,
-    pub spectrum_filter_cutoff: Option<f32>,
+    pub postprocessing_config: PostprocessingConfig,
     pub view_config: ViewConfig,
 }
 
@@ -121,8 +139,7 @@ impl Default for SpectrometerConfig {
             camera_format,
             image_config: Default::default(),
             spectrum_calibration: Default::default(),
-            spectrum_buffer_size: 10,
-            spectrum_filter_cutoff: None,
+            postprocessing_config: Default::default(),
             view_config: Default::default(),
         }
     }
