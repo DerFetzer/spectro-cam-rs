@@ -1,9 +1,24 @@
 use crate::config::ImageConfig;
 use flume::{Receiver, Sender};
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
-use nokhwa::{CameraFormat, ThreadedCamera};
+use nokhwa::{CameraFormat, FrameFormat, Resolution, ThreadedCamera};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+#[derive(Debug, Clone)]
+pub struct CameraInfo {
+    pub info: nokhwa::CameraInfo,
+    pub formats: Vec<CameraFormat>,
+}
+
+impl CameraInfo {
+    pub fn get_default_camera_formats() -> Vec<CameraFormat> {
+        vec![
+            CameraFormat::default(),
+            CameraFormat::new(Resolution::new(640, 480), FrameFormat::YUYV, 30),
+        ]
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum CameraEvent {

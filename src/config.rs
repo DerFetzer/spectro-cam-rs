@@ -20,20 +20,24 @@ pub struct CameraControl {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
 pub struct ViewConfig {
     pub image_scale: f32,
-    pub draw_r: bool,
-    pub draw_g: bool,
-    pub draw_b: bool,
-    pub draw_combined: bool,
+    pub draw_spectrum_r: bool,
+    pub draw_spectrum_g: bool,
+    pub draw_spectrum_b: bool,
+    pub draw_spectrum_combined: bool,
+    pub show_camera_window: bool,
+    pub show_calibration_window: bool,
 }
 
 impl Default for ViewConfig {
     fn default() -> Self {
         Self {
             image_scale: 0.25,
-            draw_r: true,
-            draw_g: true,
-            draw_b: true,
-            draw_combined: true,
+            draw_spectrum_r: true,
+            draw_spectrum_g: true,
+            draw_spectrum_b: true,
+            draw_spectrum_combined: true,
+            show_camera_window: true,
+            show_calibration_window: false,
         }
     }
 }
