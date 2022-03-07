@@ -12,6 +12,7 @@ use egui_glium::EguiGlium;
 use epi::NativeTexture;
 use glium::texture::RawImage2d;
 use glium::texture::SrgbTexture2d;
+use glium::Surface as _;
 use glium::{glutin, Display};
 use spectro_cam_rs::init_logging;
 use std::rc::Rc;
@@ -31,7 +32,17 @@ fn create_display(event_loop: &glutin::event_loop::EventLoop<()>) -> glium::Disp
         .with_stencil_buffer(0)
         .with_vsync(true);
 
-    glium::Display::new(window_builder, context_builder, event_loop).unwrap()
+    let display = glium::Display::new(window_builder, context_builder, event_loop).unwrap();
+
+    // Clear window
+    let mut target = display.draw();
+
+    let color = egui::Rgba::from_rgb(0., 0., 0.);
+    target.clear_color(color[0], color[1], color[2], color[3]);
+
+    target.finish().unwrap();
+
+    display
 }
 
 fn register_webcam_texture(display: &Display, egui_glium: &mut EguiGlium) -> TextureId {
@@ -83,7 +94,6 @@ fn main() {
             };
 
             {
-                use glium::Surface as _;
                 let mut target = display.draw();
 
                 let color = egui::Rgba::from_rgb(0.1, 0.3, 0.2);
