@@ -3,6 +3,8 @@
 
 A cross-platform GUI for webcam-based spectrometers.
 
+![Screenshot](res/screenshot.png)
+
 # License
 
 This program is licensed under either of
