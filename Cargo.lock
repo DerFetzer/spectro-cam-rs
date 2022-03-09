@@ -2149,6 +2149,7 @@ dependencies = [
  "rayon",
  "serde",
  "simple_logger",
+ "v4l",
 ]
 
 [[package]]

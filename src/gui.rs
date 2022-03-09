@@ -1,5 +1,5 @@
 use crate::camera::CameraInfo;
-use crate::config::SpectrometerConfig;
+use crate::config::{CameraControl, SpectrometerConfig};
 use crate::spectrum::Spectrum;
 use crate::CameraEvent;
 use biquad::{
@@ -7,18 +7,22 @@ use biquad::{
 };
 use egui::plot::{Legend, Line, Plot, VLine, Value, Values};
 use egui::{
-    Button, Color32, ComboBox, Context, Rect, Rounding, Sense, Slider, Stroke, TextureId, Vec2,
+    Button, Checkbox, Color32, ComboBox, Context, Rect, Rounding, Sense, Slider, Stroke, TextureId,
+    Vec2,
 };
 use flume::{Receiver, Sender};
 use nokhwa::{query, Camera};
 use rayon::prelude::*;
+use std::any::Any;
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
+use v4l::control::{Description, Flags};
 
 pub struct SpectrometerGui {
     config: SpectrometerConfig,
     running: bool,
     camera_info: HashMap<usize, CameraInfo>,
+    camera_controls: Vec<Box<dyn Any>>,
     webcam_texture_id: TextureId,
     spectrum: Spectrum,
     spectrum_buffer: Vec<Spectrum>,
@@ -39,6 +43,7 @@ impl SpectrometerGui {
             config,
             running: false,
             camera_info: Default::default(),
+            camera_controls: Default::default(),
             webcam_texture_id,
             spectrum: Spectrum::zeros(spectrum_width as usize),
             spectrum_buffer: Vec::new(),
@@ -81,6 +86,50 @@ impl SpectrometerGui {
     }
 
     fn start_stream(&mut self) {
+        let default_camera_formats = CameraInfo::get_default_camera_formats();
+        for format in default_camera_formats {
+            if let Ok(cam) = Camera::new(self.config.camera_id, Some(format)) {
+                self.camera_controls = cam
+                    .raw_supported_camera_controls()
+                    .unwrap()
+                    .into_iter()
+                    .filter(|c| {
+                        let c = c.downcast_ref::<Description>().unwrap();
+                        !c.flags.contains(Flags::READ_ONLY) && !c.flags.contains(Flags::WRITE_ONLY)
+                    })
+                    .collect();
+
+                self.config.image_config.controls = self
+                    .camera_controls
+                    .iter()
+                    .filter_map(|c| {
+                        let d = c.downcast_ref::<Description>().unwrap();
+                        if d.flags.contains(Flags::READ_ONLY) || d.flags.contains(Flags::WRITE_ONLY)
+                        {
+                            None
+                        } else {
+                            Some(CameraControl {
+                                id: d.id,
+                                name: d.name.clone(),
+                                value: d.default,
+                            })
+                        }
+                    })
+                    .collect();
+                break;
+            }
+        }
+        log::info!(
+            "{:?}",
+            self.camera_controls
+                .iter()
+                .map(|c| {
+                    let c = c.downcast_ref::<Description>().unwrap();
+                    (c.id, c.name.clone(), c.flags, c.typ)
+                })
+                .collect::<Vec<(u32, String, Flags, v4l::control::Type)>>()
+        );
+        log::info!("{:?}", self.config.image_config.controls);
         self.spectrum_buffer.clear();
         self.send_config();
         self.camera_config_tx
@@ -375,10 +424,97 @@ impl SpectrometerGui {
             });
     }
 
+    fn draw_camera_control_window(&mut self, ctx: &Context) {
+        egui::Window::new("Postprocessing")
+            .open(&mut self.config.view_config.show_camera_control_window)
+            .show(ctx, |ui| {
+                let mut changed = false;
+                for ctrl in &mut self.camera_controls {
+                    let ctrl = ctrl.downcast_ref::<Description>().unwrap();
+                    let own_ctrl = self
+                        .config
+                        .image_config
+                        .controls
+                        .iter_mut()
+                        .find(|c| c.id == ctrl.id)
+                        .unwrap();
+                    let value_changed = match ctrl.typ {
+                        v4l::control::Type::Integer => ui
+                            .add(
+                                Slider::new(
+                                    &mut own_ctrl.value,
+                                    (ctrl.minimum + 1)..=(ctrl.maximum - 1),
+                                )
+                                .step_by(ctrl.step as f64)
+                                .text(&ctrl.name),
+                            )
+                            .changed(),
+                        v4l::control::Type::Boolean => {
+                            let mut checked = own_ctrl.value == 1;
+                            let response = ui.add(Checkbox::new(&mut checked, &ctrl.name));
+                            own_ctrl.value = checked as i32;
+                            response.changed()
+                        }
+                        v4l::control::Type::Menu => {
+                            let mut changed = false;
+                            ComboBox::from_label(&ctrl.name)
+                                .selected_text(
+                                    ctrl.items
+                                        .as_ref()
+                                        .unwrap()
+                                        .iter()
+                                        .find(|&i| i.0 == own_ctrl.value as u32)
+                                        .unwrap()
+                                        .1
+                                        .to_string(),
+                                )
+                                .show_ui(ui, |ui| {
+                                    for item in ctrl.items.as_ref().unwrap().iter() {
+                                        changed |= ui
+                                            .selectable_value(
+                                                &mut own_ctrl.value,
+                                                item.0 as i32,
+                                                item.1.to_string(),
+                                            )
+                                            .changed();
+                                    }
+                                });
+                            changed
+                        }
+                        _ => false,
+                    };
+                    changed |= value_changed;
+                }
+                let default_button = ui.button("All default");
+                if default_button.clicked() {
+                    changed = true;
+                    for ctrl in &mut self.camera_controls {
+                        let ctrl = ctrl.downcast_ref::<Description>().unwrap();
+                        let own_ctrl = self
+                            .config
+                            .image_config
+                            .controls
+                            .iter_mut()
+                            .find(|c| c.id == ctrl.id)
+                            .unwrap();
+
+                        own_ctrl.value = ctrl.default;
+                    }
+                }
+                if changed {
+                    // Cannot use self.send_config due to mutable borrow in open
+                    self.camera_config_tx
+                        .send(CameraEvent::Config(self.config.image_config.clone()))
+                        .unwrap();
+                }
+            });
+    }
+
     fn draw_windows(&mut self, ctx: &Context) {
         self.draw_camera_window(ctx);
         self.draw_calibration_window(ctx);
         self.draw_postprocessing_window(ctx);
+        self.draw_camera_control_window(ctx);
     }
 
     fn draw_connection_panel(&mut self, ctx: &Context) {
@@ -441,6 +577,10 @@ impl SpectrometerGui {
     fn draw_window_selection_panel(&mut self, ctx: &Context) {
         egui::SidePanel::left("window_selection").show(ctx, |ui| {
             ui.checkbox(&mut self.config.view_config.show_camera_window, "Camera");
+            ui.checkbox(
+                &mut self.config.view_config.show_camera_control_window,
+                "Camera Controls",
+            );
             ui.checkbox(
                 &mut self.config.view_config.show_calibration_window,
                 "Calibration",

@@ -2,7 +2,6 @@ use crate::serde::CameraFormatDef;
 use egui::Vec2;
 use nokhwa::{CameraFormat, FrameFormat, Resolution};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone, Copy, Default)]
 pub struct SpectrumWindow {
@@ -12,9 +11,9 @@ pub struct SpectrumWindow {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct CameraControl {
+    pub id: u32,
     pub name: String,
     pub value: i32,
-    pub automatic: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
@@ -27,6 +26,7 @@ pub struct ViewConfig {
     pub show_camera_window: bool,
     pub show_calibration_window: bool,
     pub show_postprocessing_window: bool,
+    pub show_camera_control_window: bool,
 }
 
 impl Default for ViewConfig {
@@ -40,13 +40,14 @@ impl Default for ViewConfig {
             show_camera_window: true,
             show_calibration_window: false,
             show_postprocessing_window: false,
+            show_camera_control_window: false,
         }
     }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ImageConfig {
-    pub controls: HashMap<String, CameraControl>,
+    pub controls: Vec<CameraControl>,
     pub window: SpectrumWindow,
     pub flip: bool,
 }

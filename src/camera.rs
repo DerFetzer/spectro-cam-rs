@@ -4,6 +4,7 @@ use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
 use nokhwa::{CameraFormat, FrameFormat, Resolution, ThreadedCamera};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use v4l::Control;
 
 #[derive(Debug, Clone)]
 pub struct CameraInfo {
@@ -62,7 +63,6 @@ impl CameraThread {
                         let exit_rx = exit_rx.clone();
                         let hdl = std::thread::spawn(move || {
                             let mut camera = ThreadedCamera::new(id, Some(format)).unwrap();
-                            let controls = camera.camera_controls_string().unwrap();
 
                             camera.open_stream(|_| {}).unwrap();
 
@@ -75,10 +75,19 @@ impl CameraThread {
                                 }
                                 // Check for new config
                                 if let Some(cfg) = config.lock().unwrap().take() {
-                                    for (name, control) in &cfg.controls {
-                                        let mut cc = *controls.get(name).unwrap();
-                                        cc.set_value(control.value).unwrap();
-                                        camera.set_camera_control(cc).unwrap();
+                                    for control in &cfg.controls {
+                                        camera
+                                            .set_raw_camera_control(
+                                                &control.id,
+                                                &Control::Value(control.value),
+                                            )
+                                            .map_err(|e| {
+                                                log::warn!(
+                                                    "Could not write camera control: {:?}",
+                                                    e
+                                                )
+                                            })
+                                            .ok();
                                     }
                                     inner_config = Some(cfg);
                                 }
