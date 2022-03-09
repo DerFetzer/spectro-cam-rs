@@ -310,7 +310,7 @@ impl SpectrometerGui {
                         .add(
                             Slider::new(
                                 &mut self.config.image_config.window.size.x,
-                                0.0..=(self.config.camera_format.width() as f32
+                                1.0..=(self.config.camera_format.width() as f32
                                     - self.config.image_config.window.offset.x
                                     - 1.),
                             )
@@ -322,7 +322,7 @@ impl SpectrometerGui {
                         .add(
                             Slider::new(
                                 &mut self.config.image_config.window.size.y,
-                                0.0..=(self.config.camera_format.height() as f32
+                                1.0..=(self.config.camera_format.height() as f32
                                     - self.config.image_config.window.offset.y
                                     - 1.),
                             )
