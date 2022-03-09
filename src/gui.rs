@@ -425,7 +425,7 @@ impl SpectrometerGui {
     }
 
     fn draw_camera_control_window(&mut self, ctx: &Context) {
-        egui::Window::new("Postprocessing")
+        egui::Window::new("Camera Controls")
             .open(&mut self.config.view_config.show_camera_control_window)
             .show(ctx, |ui| {
                 let mut changed_controls = vec![];
