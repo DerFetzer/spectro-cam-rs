@@ -1,4 +1,4 @@
-use crate::config::ImageConfig;
+use crate::config::{CameraControl, ImageConfig};
 use flume::{Receiver, Sender};
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
 use nokhwa::{CameraFormat, FrameFormat, Resolution, ThreadedCamera};
@@ -26,6 +26,7 @@ pub enum CameraEvent {
     StartStream { id: usize, format: CameraFormat },
     StopStream,
     Config(ImageConfig),
+    Controls(Vec<CameraControl>),
 }
 
 struct Exit {}
@@ -52,9 +53,11 @@ impl CameraThread {
     pub fn run(&mut self) -> ! {
         let (exit_tx, exit_rx) = flume::bounded(0);
         let config: Arc<Mutex<Option<ImageConfig>>> = Arc::new(Mutex::new(None));
+        let controls: Arc<Mutex<Option<Vec<CameraControl>>>> = Arc::new(Mutex::new(None));
         let mut join_handle = None;
         loop {
             let config = Arc::clone(&config);
+            let controls = Arc::clone(&controls);
             if let Ok(event) = self.config_rx.try_recv() {
                 match event {
                     CameraEvent::StartStream { id, format } => {
@@ -76,20 +79,15 @@ impl CameraThread {
                                 // Check for new config
                                 if let Some(cfg) = config.lock().unwrap().take() {
                                     for control in &cfg.controls {
-                                        camera
-                                            .set_raw_camera_control(
-                                                &control.id,
-                                                &Control::Value(control.value),
-                                            )
-                                            .map_err(|e| {
-                                                log::warn!(
-                                                    "Could not write camera control: {:?}",
-                                                    e
-                                                )
-                                            })
-                                            .ok();
+                                        Self::set_control(&mut camera, control);
                                     }
                                     inner_config = Some(cfg);
+                                }
+                                // Check for new controls
+                                if let Some(controls) = controls.lock().unwrap().take() {
+                                    for control in controls.iter() {
+                                        Self::set_control(&mut camera, control);
+                                    }
                                 }
                                 // Get frame
                                 let frame = camera.poll_frame().unwrap();
@@ -134,9 +132,19 @@ impl CameraThread {
                     CameraEvent::Config(cfg) => {
                         *config.lock().unwrap() = Some(cfg);
                     }
+                    CameraEvent::Controls(ctrls) => {
+                        *controls.lock().unwrap() = Some(ctrls);
+                    }
                 }
             }
             std::thread::sleep(Duration::from_millis(1));
         }
+    }
+
+    fn set_control(camera: &mut ThreadedCamera, control: &CameraControl) {
+        camera
+            .set_raw_camera_control(&control.id, &Control::Value(control.value))
+            .map_err(|e| log::warn!("Could not write camera control: {:?}", e))
+            .ok();
     }
 }

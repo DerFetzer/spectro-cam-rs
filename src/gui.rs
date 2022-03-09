@@ -428,7 +428,7 @@ impl SpectrometerGui {
         egui::Window::new("Postprocessing")
             .open(&mut self.config.view_config.show_camera_control_window)
             .show(ctx, |ui| {
-                let mut changed = false;
+                let mut changed_controls = vec![];
                 for ctrl in &mut self.camera_controls {
                     let ctrl = ctrl.downcast_ref::<Description>().unwrap();
                     let own_ctrl = self
@@ -483,11 +483,12 @@ impl SpectrometerGui {
                         }
                         _ => false,
                     };
-                    changed |= value_changed;
+                    if value_changed {
+                        changed_controls.push(own_ctrl.clone());
+                    };
                 }
                 let default_button = ui.button("All default");
                 if default_button.clicked() {
-                    changed = true;
                     for ctrl in &mut self.camera_controls {
                         let ctrl = ctrl.downcast_ref::<Description>().unwrap();
                         let own_ctrl = self
@@ -500,11 +501,15 @@ impl SpectrometerGui {
 
                         own_ctrl.value = ctrl.default;
                     }
-                }
-                if changed {
                     // Cannot use self.send_config due to mutable borrow in open
                     self.camera_config_tx
                         .send(CameraEvent::Config(self.config.image_config.clone()))
+                        .unwrap();
+                }
+                if !changed_controls.is_empty() {
+                    // Cannot use self.send_config due to mutable borrow in open
+                    self.camera_config_tx
+                        .send(CameraEvent::Controls(changed_controls))
                         .unwrap();
                 }
             });
