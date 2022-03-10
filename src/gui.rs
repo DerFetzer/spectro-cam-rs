@@ -624,4 +624,8 @@ impl SpectrometerGui {
         self.draw_windows(ctx);
         self.draw_spectrum(ctx);
     }
+
+    pub fn persist_config(&self) {
+        confy::store("spectro-cam-rs", None, self.config.clone()).unwrap();
+    }
 }

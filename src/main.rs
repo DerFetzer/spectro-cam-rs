@@ -119,6 +119,7 @@ fn main() {
             glutin::event::Event::WindowEvent { event, .. } => {
                 use glutin::event::WindowEvent;
                 if matches!(event, WindowEvent::CloseRequested | WindowEvent::Destroyed) {
+                    gui.persist_config();
                     *control_flow = glutin::event_loop::ControlFlow::Exit;
                 }
 
