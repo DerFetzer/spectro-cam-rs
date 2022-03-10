@@ -161,7 +161,7 @@ impl SpectrometerGui {
             .par_iter()
             .cloned()
             .reduce(|| Spectrum::from_element(ncols, 0.), |a, b| a + b)
-            / self.config.postprocessing_config.spectrum_buffer_size as f32;
+            / self.spectrum_buffer.len() as f32;
 
         if self.config.postprocessing_config.spectrum_filter_active {
             let cutoff = self
@@ -177,6 +177,10 @@ impl SpectrometerGui {
             for mut channel in self.spectrum.row_iter_mut() {
                 let mut biquad = DirectForm2Transposed::<f32>::new(coeffs);
                 for sample in channel.iter_mut() {
+                    *sample = biquad.run(*sample);
+                }
+                // Apply filter in reverse to compensate phase error
+                for sample in channel.iter_mut().rev() {
                     *sample = biquad.run(*sample);
                 }
             }
