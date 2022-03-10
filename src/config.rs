@@ -73,6 +73,9 @@ pub struct SpectrumCalibrationPoint {
 pub struct SpectrumCalibration {
     pub low: SpectrumCalibrationPoint,
     pub high: SpectrumCalibrationPoint,
+    pub gain_r: f32,
+    pub gain_g: f32,
+    pub gain_b: f32,
 }
 
 impl SpectrumCalibration {
@@ -98,6 +101,9 @@ impl Default for SpectrumCalibration {
                 wavelength: 546,
                 index: 486,
             },
+            gain_r: 1.0,
+            gain_g: 1.0,
+            gain_b: 1.0,
         }
     }
 }

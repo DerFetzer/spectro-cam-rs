@@ -1,20 +1,21 @@
 use flume::{Receiver, Sender};
 use image::{ImageBuffer, Pixel, Rgb};
-use nalgebra::{Dynamic, OMatrix, U4};
+use nalgebra::{Dynamic, OMatrix, U3, U4};
 use rayon::prelude::*;
 use std::time::Duration;
 
+pub type SpectrumRgb = OMatrix<f32, U3, Dynamic>;
 pub type Spectrum = OMatrix<f32, U4, Dynamic>;
 
 pub struct SpectrumCalculator {
     window_rx: Receiver<ImageBuffer<Rgb<u8>, Vec<u8>>>,
-    spectrum_tx: Sender<Spectrum>,
+    spectrum_tx: Sender<SpectrumRgb>,
 }
 
 impl SpectrumCalculator {
     pub fn new(
         window_rx: Receiver<ImageBuffer<Rgb<u8>, Vec<u8>>>,
-        spectrum_tx: Sender<Spectrum>,
+        spectrum_tx: Sender<SpectrumRgb>,
     ) -> Self {
         SpectrumCalculator {
             window_rx,
@@ -29,21 +30,17 @@ impl SpectrumCalculator {
                 let rows = window.height();
                 let max_value = rows * u8::MAX as u32 * 3;
 
-                let spectrum: Spectrum = window
+                let spectrum: SpectrumRgb = window
                     .rows()
                     .par_bridge()
                     .map(|r| {
-                        Spectrum::from_vec(
-                            r.flat_map(|p| {
-                                let pv =
-                                    p.channels().iter().map(|&v| v as f32).collect::<Vec<f32>>();
-                                [pv.as_slice(), &[pv.iter().sum()]].concat()
-                            })
-                            .collect::<Vec<f32>>(),
+                        SpectrumRgb::from_vec(
+                            r.flat_map(|p| p.channels().iter().map(|&v| v as f32))
+                                .collect::<Vec<f32>>(),
                         )
                     })
                     .reduce(
-                        || Spectrum::from_element(columns as usize, 0.),
+                        || SpectrumRgb::from_element(columns as usize, 0.),
                         |a, b| a + b,
                     )
                     / max_value as f32;

@@ -1,6 +1,6 @@
 use crate::camera::CameraInfo;
 use crate::config::{CameraControl, SpectrometerConfig};
-use crate::spectrum::Spectrum;
+use crate::spectrum::{Spectrum, SpectrumRgb};
 use crate::CameraEvent;
 use biquad::{
     Biquad, Coefficients, DirectForm2Transposed, Hertz, ToHertz, Type, Q_BUTTERWORTH_F32,
@@ -30,14 +30,14 @@ pub struct SpectrometerGui {
     spectrum_buffer: Vec<Spectrum>,
     camera_config_tx: Sender<CameraEvent>,
     camera_config_change_pending: bool,
-    spectrum_rx: Receiver<Spectrum>,
+    spectrum_rx: Receiver<SpectrumRgb>,
 }
 
 impl SpectrometerGui {
     pub fn new(
         webcam_texture_id: TextureId,
         camera_config_tx: Sender<CameraEvent>,
-        spectrum_rx: Receiver<Spectrum>,
+        spectrum_rx: Receiver<SpectrumRgb>,
     ) -> Self {
         let config: SpectrometerConfig = confy::load("spectro-cam-rs", None).unwrap_or_default();
         let spectrum_width = config.camera_format.width();
@@ -157,15 +157,36 @@ impl SpectrometerGui {
         self.camera_config_tx.send(CameraEvent::StopStream).unwrap();
     }
 
-    fn update_spectrum(&mut self, spectrum: Spectrum) {
+    fn update_spectrum(&mut self, mut spectrum: SpectrumRgb) {
         let ncols = spectrum.ncols();
 
         // Clear buffer on dimension change
         if let Some(s) = self.spectrum_buffer.get(0) {
-            if s.len() != spectrum.len() {
+            if s.ncols() != ncols {
                 self.spectrum_buffer.clear();
             }
         }
+
+        spectrum.set_row(
+            0,
+            &(spectrum.row(0) * self.config.spectrum_calibration.gain_r),
+        );
+        spectrum.set_row(
+            1,
+            &(spectrum.row(1) * self.config.spectrum_calibration.gain_g),
+        );
+        spectrum.set_row(
+            2,
+            &(spectrum.row(2) * self.config.spectrum_calibration.gain_b),
+        );
+
+        let spectrum = Spectrum::from_rows(&[
+            spectrum.row(0).clone_owned(),
+            spectrum.row(1).clone_owned(),
+            spectrum.row(2).clone_owned(),
+            spectrum.row_sum(),
+        ]);
+
         self.spectrum_buffer.insert(0, spectrum);
         self.spectrum_buffer
             .truncate(self.config.postprocessing_config.spectrum_buffer_size);
@@ -408,6 +429,19 @@ impl SpectrometerGui {
                             ..=self.config.image_config.window.size.x as usize,
                     )
                     .text("High Index"),
+                );
+                ui.separator();
+                ui.add(
+                    Slider::new(&mut self.config.spectrum_calibration.gain_r, 0.0..=10.)
+                        .text("Gain R"),
+                );
+                ui.add(
+                    Slider::new(&mut self.config.spectrum_calibration.gain_g, 0.0..=10.)
+                        .text("Gain G"),
+                );
+                ui.add(
+                    Slider::new(&mut self.config.spectrum_calibration.gain_b, 0.0..=10.)
+                        .text("Gain B"),
                 );
             });
     }
