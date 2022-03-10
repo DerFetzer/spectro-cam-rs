@@ -47,7 +47,6 @@ impl Default for ViewConfig {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ImageConfig {
-    pub controls: Vec<CameraControl>,
     pub window: SpectrumWindow,
     pub flip: bool,
 }
@@ -55,7 +54,6 @@ pub struct ImageConfig {
 impl Default for ImageConfig {
     fn default() -> Self {
         Self {
-            controls: Default::default(),
             window: SpectrumWindow {
                 offset: Vec2::new(100., 500.),
                 size: Vec2::new(1500., 1.),

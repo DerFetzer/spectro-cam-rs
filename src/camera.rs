@@ -78,9 +78,6 @@ impl CameraThread {
                                 }
                                 // Check for new config
                                 if let Some(cfg) = config.lock().unwrap().take() {
-                                    for control in &cfg.controls {
-                                        Self::set_control(&mut camera, control);
-                                    }
                                     inner_config = Some(cfg);
                                 }
                                 // Check for new controls

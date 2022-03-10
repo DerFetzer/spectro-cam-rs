@@ -17,12 +17,14 @@ use std::any::Any;
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use v4l::control::{Description, Flags};
+use v4l::Control;
 
 pub struct SpectrometerGui {
     config: SpectrometerConfig,
     running: bool,
     camera_info: HashMap<usize, CameraInfo>,
-    camera_controls: Vec<Box<dyn Any>>,
+    camera_raw_controls: Vec<Box<dyn Any>>,
+    camera_controls: Vec<CameraControl>,
     webcam_texture_id: TextureId,
     spectrum: Spectrum,
     spectrum_buffer: Vec<Spectrum>,
@@ -43,6 +45,7 @@ impl SpectrometerGui {
             config,
             running: false,
             camera_info: Default::default(),
+            camera_raw_controls: Default::default(),
             camera_controls: Default::default(),
             webcam_texture_id,
             spectrum: Spectrum::zeros(spectrum_width as usize),
@@ -89,7 +92,7 @@ impl SpectrometerGui {
         let default_camera_formats = CameraInfo::get_default_camera_formats();
         for format in default_camera_formats {
             if let Ok(cam) = Camera::new(self.config.camera_id, Some(format)) {
-                self.camera_controls = cam
+                self.camera_raw_controls = cam
                     .raw_supported_camera_controls()
                     .unwrap()
                     .into_iter()
@@ -99,19 +102,29 @@ impl SpectrometerGui {
                     })
                     .collect();
 
-                self.config.image_config.controls = self
-                    .camera_controls
+                self.camera_controls = self
+                    .camera_raw_controls
                     .iter()
-                    .filter_map(|c| {
-                        let d = c.downcast_ref::<Description>().unwrap();
-                        if d.flags.contains(Flags::READ_ONLY) || d.flags.contains(Flags::WRITE_ONLY)
+                    .filter_map(|ctrl| {
+                        let descr = ctrl.downcast_ref::<Description>().unwrap();
+                        if descr.flags.contains(Flags::READ_ONLY)
+                            || descr.flags.contains(Flags::WRITE_ONLY)
                         {
                             None
                         } else {
+                            let rcc = *cam
+                                .raw_camera_control(&descr.id)
+                                .unwrap()
+                                .downcast::<Control>()
+                                .unwrap();
+                            let value = match rcc {
+                                Control::Value(v) => v,
+                                _ => return None,
+                            };
                             Some(CameraControl {
-                                id: d.id,
-                                name: d.name.clone(),
-                                value: d.default,
+                                id: descr.id,
+                                name: descr.name.clone(),
+                                value,
                             })
                         }
                     })
@@ -121,7 +134,7 @@ impl SpectrometerGui {
         }
         log::info!(
             "{:?}",
-            self.camera_controls
+            self.camera_raw_controls
                 .iter()
                 .map(|c| {
                     let c = c.downcast_ref::<Description>().unwrap();
@@ -129,7 +142,7 @@ impl SpectrometerGui {
                 })
                 .collect::<Vec<(u32, String, Flags, v4l::control::Type)>>()
         );
-        log::info!("{:?}", self.config.image_config.controls);
+        log::info!("{:?}", self.camera_controls);
         self.spectrum_buffer.clear();
         self.send_config();
         self.camera_config_tx
@@ -433,12 +446,10 @@ impl SpectrometerGui {
             .open(&mut self.config.view_config.show_camera_control_window)
             .show(ctx, |ui| {
                 let mut changed_controls = vec![];
-                for ctrl in &mut self.camera_controls {
+                for ctrl in &mut self.camera_raw_controls {
                     let ctrl = ctrl.downcast_ref::<Description>().unwrap();
                     let own_ctrl = self
-                        .config
-                        .image_config
-                        .controls
+                        .camera_controls
                         .iter_mut()
                         .find(|c| c.id == ctrl.id)
                         .unwrap();
@@ -493,12 +504,10 @@ impl SpectrometerGui {
                 }
                 let default_button = ui.button("All default");
                 if default_button.clicked() {
-                    for ctrl in &mut self.camera_controls {
+                    for ctrl in &mut self.camera_raw_controls {
                         let ctrl = ctrl.downcast_ref::<Description>().unwrap();
                         let own_ctrl = self
-                            .config
-                            .image_config
-                            .controls
+                            .camera_controls
                             .iter_mut()
                             .find(|c| c.id == ctrl.id)
                             .unwrap();
@@ -507,7 +516,7 @@ impl SpectrometerGui {
                     }
                     // Cannot use self.send_config due to mutable borrow in open
                     self.camera_config_tx
-                        .send(CameraEvent::Config(self.config.image_config.clone()))
+                        .send(CameraEvent::Controls(self.camera_controls.clone()))
                         .unwrap();
                 }
                 if !changed_controls.is_empty() {
