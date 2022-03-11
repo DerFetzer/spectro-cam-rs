@@ -5,6 +5,7 @@ mod serde;
 mod spectrum;
 
 use crate::camera::{CameraEvent, CameraThread};
+use crate::config::SpectrometerConfig;
 use crate::gui::SpectrometerGui;
 use crate::spectrum::SpectrumCalculator;
 use egui::TextureId;
@@ -17,13 +18,13 @@ use glium::{glutin, Display};
 use spectro_cam_rs::init_logging;
 use std::rc::Rc;
 
-fn create_display(event_loop: &glutin::event_loop::EventLoop<()>) -> glium::Display {
+fn create_display(
+    event_loop: &glutin::event_loop::EventLoop<()>,
+    window_size: glutin::dpi::PhysicalSize<u32>,
+) -> glium::Display {
     let window_builder = glutin::window::WindowBuilder::new()
         .with_resizable(true)
-        .with_inner_size(glutin::dpi::LogicalSize {
-            width: 800.0,
-            height: 600.0,
-        })
+        .with_inner_size(window_size)
         .with_title("spectro-cam-rs");
 
     let context_builder = glutin::ContextBuilder::new()
@@ -51,11 +52,17 @@ fn register_webcam_texture(display: &Display, egui_glium: &mut EguiGlium) -> Tex
     egui_glium.painter.register_native_texture(glium_texture)
 }
 
+fn load_config() -> SpectrometerConfig {
+    confy::load("spectro-cam-rs", None).unwrap_or_default()
+}
+
 fn main() {
     init_logging();
 
+    let config = load_config();
+
     let event_loop = glutin::event_loop::EventLoop::with_user_event();
-    let display = create_display(&event_loop);
+    let display = create_display(&event_loop, config.view_config.window_size);
 
     let mut egui_glium = egui_glium::EguiGlium::new(&display);
 
@@ -69,7 +76,7 @@ fn main() {
     std::thread::spawn(move || CameraThread::new(frame_tx, window_tx, config_rx).run());
     std::thread::spawn(move || SpectrumCalculator::new(window_rx, spectrum_tx).run());
 
-    let mut gui = SpectrometerGui::new(texture_id, config_tx, spectrum_rx);
+    let mut gui = SpectrometerGui::new(texture_id, config_tx, spectrum_rx, config);
 
     event_loop.run(move |event, _, control_flow| {
         if let Ok(frame) = frame_rx.try_recv() {
@@ -119,7 +126,7 @@ fn main() {
             glutin::event::Event::WindowEvent { event, .. } => {
                 use glutin::event::WindowEvent;
                 if matches!(event, WindowEvent::CloseRequested | WindowEvent::Destroyed) {
-                    gui.persist_config();
+                    gui.persist_config(display.gl_window().window().inner_size());
                     *control_flow = glutin::event_loop::ControlFlow::Exit;
                 }
 

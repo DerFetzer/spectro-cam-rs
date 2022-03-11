@@ -1,7 +1,44 @@
 use crate::serde::CameraFormatDef;
+use egui::plot::{Line, Value, Values};
 use egui::Vec2;
+use glium::glutin::dpi::PhysicalSize;
 use nokhwa::{CameraFormat, FrameFormat, Resolution};
 use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy, Default)]
+pub struct ReferencePoint {
+    pub wavelength: f32,
+    pub value: f32,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct ReferenceConfig {
+    pub reference: Option<Vec<ReferencePoint>>,
+    pub scale: f32,
+    pub path: String,
+}
+
+impl Default for ReferenceConfig {
+    fn default() -> Self {
+        Self {
+            reference: None,
+            scale: 1.0,
+            path: "".to_string(),
+        }
+    }
+}
+
+impl ReferenceConfig {
+    pub fn to_line(&self) -> Option<Line> {
+        self.reference.as_ref().map(|reference| {
+            Line::new(Values::from_values_iter(
+                reference
+                    .iter()
+                    .map(|rp| Value::new(rp.wavelength, rp.value * self.scale)),
+            ))
+        })
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone, Copy, Default)]
 pub struct SpectrumWindow {
@@ -18,6 +55,7 @@ pub struct CameraControl {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
 pub struct ViewConfig {
+    pub window_size: PhysicalSize<u32>,
     pub image_scale: f32,
     pub draw_spectrum_r: bool,
     pub draw_spectrum_g: bool,
@@ -27,11 +65,13 @@ pub struct ViewConfig {
     pub show_calibration_window: bool,
     pub show_postprocessing_window: bool,
     pub show_camera_control_window: bool,
+    pub show_reference_window: bool,
 }
 
 impl Default for ViewConfig {
     fn default() -> Self {
         Self {
+            window_size: PhysicalSize::new(800, 600),
             image_scale: 0.25,
             draw_spectrum_r: true,
             draw_spectrum_g: true,
@@ -41,6 +81,7 @@ impl Default for ViewConfig {
             show_calibration_window: false,
             show_postprocessing_window: false,
             show_camera_control_window: false,
+            show_reference_window: false,
         }
     }
 }
@@ -134,6 +175,7 @@ pub struct SpectrometerConfig {
     pub spectrum_calibration: SpectrumCalibration,
     pub postprocessing_config: PostprocessingConfig,
     pub view_config: ViewConfig,
+    pub reference_config: ReferenceConfig,
 }
 
 impl Default for SpectrometerConfig {
@@ -146,6 +188,7 @@ impl Default for SpectrometerConfig {
             spectrum_calibration: Default::default(),
             postprocessing_config: Default::default(),
             view_config: Default::default(),
+            reference_config: Default::default(),
         }
     }
 }

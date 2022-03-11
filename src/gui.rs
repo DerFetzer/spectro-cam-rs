@@ -1,5 +1,5 @@
 use crate::camera::CameraInfo;
-use crate::config::{CameraControl, SpectrometerConfig};
+use crate::config::{CameraControl, ReferencePoint, SpectrometerConfig};
 use crate::spectrum::{Spectrum, SpectrumRgb};
 use crate::CameraEvent;
 use biquad::{
@@ -11,6 +11,7 @@ use egui::{
     Vec2,
 };
 use flume::{Receiver, Sender};
+use glium::glutin::dpi::PhysicalSize;
 use nokhwa::{query, Camera};
 use rayon::prelude::*;
 use std::any::Any;
@@ -38,8 +39,8 @@ impl SpectrometerGui {
         webcam_texture_id: TextureId,
         camera_config_tx: Sender<CameraEvent>,
         spectrum_rx: Receiver<SpectrumRgb>,
+        config: SpectrometerConfig,
     ) -> Self {
-        let config: SpectrometerConfig = confy::load("spectro-cam-rs", None).unwrap_or_default();
         let spectrum_width = config.camera_format.width();
         let mut gui = Self {
             config,
@@ -224,18 +225,13 @@ impl SpectrometerGui {
     fn spectrum_channel_to_line(&mut self, channel_index: usize) -> Line {
         Line::new({
             let calibration = self.config.spectrum_calibration;
-            Values::from_values(
-                self.spectrum
-                    .row(channel_index)
-                    .iter()
-                    .enumerate()
-                    .map(|(i, p)| {
-                        let x = calibration.get_wavelength_from_index(i);
-                        let y = *p;
-                        Value::new(x, y)
-                    })
-                    .collect(),
-            )
+            Values::from_values_iter(self.spectrum.row(channel_index).iter().enumerate().map(
+                |(i, p)| {
+                    let x = calibration.get_wavelength_from_index(i);
+                    let y = *p;
+                    Value::new(x, y)
+                },
+            ))
         })
     }
 
@@ -271,6 +267,12 @@ impl SpectrometerGui {
                                 .color(Color32::LIGHT_GRAY)
                                 .name("sum"),
                         );
+                    }
+
+                    let line = self.config.reference_config.to_line();
+
+                    if let Some(reference) = line {
+                        plot_ui.line(reference.color(Color32::KHAKI).name("reference"))
                     }
 
                     if self.config.view_config.show_calibration_window {
@@ -469,6 +471,7 @@ impl SpectrometerGui {
                             &mut self.config.postprocessing_config.spectrum_filter_cutoff,
                             0.001..=1.,
                         )
+                        .logarithmic(true)
                         .text("Cutoff"),
                     );
                 });
@@ -562,11 +565,41 @@ impl SpectrometerGui {
             });
     }
 
+    fn draw_reference_window(&mut self, ctx: &Context) {
+        egui::Window::new("Reference")
+            .open(&mut self.config.view_config.show_reference_window)
+            .show(ctx, |ui| {
+                ui.text_edit_singleline(&mut self.config.reference_config.path);
+                let load_button = ui.button("Load Reference CSV");
+                if load_button.clicked() {
+                    let mut reader =
+                        csv::Reader::from_path(&self.config.reference_config.path).unwrap();
+                    let r: Vec<ReferencePoint> =
+                        reader.deserialize().map(|rp| rp.unwrap()).collect();
+                    self.config.reference_config.reference = Some(r);
+                }
+                let delete_button = ui.add_enabled(
+                    self.config.reference_config.reference.is_some(),
+                    Button::new("Delete Reference"),
+                );
+                if delete_button.clicked() {
+                    self.config.reference_config.reference = None;
+                }
+                ui.separator();
+                ui.add(
+                    Slider::new(&mut self.config.reference_config.scale, 0.001..=100.)
+                        .logarithmic(true)
+                        .text("Reference Scale"),
+                );
+            });
+    }
+
     fn draw_windows(&mut self, ctx: &Context) {
         self.draw_camera_window(ctx);
         self.draw_calibration_window(ctx);
         self.draw_postprocessing_window(ctx);
         self.draw_camera_control_window(ctx);
+        self.draw_reference_window(ctx);
     }
 
     fn draw_connection_panel(&mut self, ctx: &Context) {
@@ -641,6 +674,10 @@ impl SpectrometerGui {
                 &mut self.config.view_config.show_postprocessing_window,
                 "Postprocessing",
             );
+            ui.checkbox(
+                &mut self.config.view_config.show_reference_window,
+                "Reference",
+            );
         });
     }
 
@@ -659,7 +696,8 @@ impl SpectrometerGui {
         self.draw_spectrum(ctx);
     }
 
-    pub fn persist_config(&self) {
+    pub fn persist_config(&mut self, window_size: PhysicalSize<u32>) {
+        self.config.view_config.window_size = window_size;
         confy::store("spectro-cam-rs", None, self.config.clone()).unwrap();
     }
 }
