@@ -2,10 +2,20 @@ use flume::{Receiver, Sender};
 use image::{ImageBuffer, Pixel, Rgb};
 use nalgebra::{Dynamic, OMatrix, U3, U4};
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 pub type SpectrumRgb = OMatrix<f32, U3, Dynamic>;
 pub type Spectrum = OMatrix<f32, U4, Dynamic>;
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy, Default)]
+pub struct SpectrumExportPoint {
+    pub wavelength: f32,
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub sum: f32,
+}
 
 pub struct SpectrumCalculator {
     window_rx: Receiver<ImageBuffer<Rgb<u8>, Vec<u8>>>,

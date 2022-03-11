@@ -5,6 +5,11 @@ use glium::glutin::dpi::PhysicalSize;
 use nokhwa::{CameraFormat, FrameFormat, Resolution};
 use serde::{Deserialize, Serialize};
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
+pub struct ImportExportConfig {
+    pub path: String,
+}
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy, Default)]
 pub struct ReferencePoint {
     pub wavelength: f32,
@@ -15,7 +20,6 @@ pub struct ReferencePoint {
 pub struct ReferenceConfig {
     pub reference: Option<Vec<ReferencePoint>>,
     pub scale: f32,
-    pub path: String,
 }
 
 impl Default for ReferenceConfig {
@@ -23,7 +27,6 @@ impl Default for ReferenceConfig {
         Self {
             reference: None,
             scale: 1.0,
-            path: "".to_string(),
         }
     }
 }
@@ -65,7 +68,7 @@ pub struct ViewConfig {
     pub show_calibration_window: bool,
     pub show_postprocessing_window: bool,
     pub show_camera_control_window: bool,
-    pub show_reference_window: bool,
+    pub show_import_export_window: bool,
 }
 
 impl Default for ViewConfig {
@@ -81,7 +84,7 @@ impl Default for ViewConfig {
             show_calibration_window: false,
             show_postprocessing_window: false,
             show_camera_control_window: false,
-            show_reference_window: false,
+            show_import_export_window: false,
         }
     }
 }
@@ -176,6 +179,7 @@ pub struct SpectrometerConfig {
     pub postprocessing_config: PostprocessingConfig,
     pub view_config: ViewConfig,
     pub reference_config: ReferenceConfig,
+    pub import_export_config: ImportExportConfig,
 }
 
 impl Default for SpectrometerConfig {
@@ -189,6 +193,7 @@ impl Default for SpectrometerConfig {
             postprocessing_config: Default::default(),
             view_config: Default::default(),
             reference_config: Default::default(),
+            import_export_config: Default::default(),
         }
     }
 }
@@ -208,7 +213,13 @@ mod tests {
             wavelength: 546,
             index: 100,
         };
-        let s = SpectrumCalibration { low, high };
+        let s = SpectrumCalibration {
+            low,
+            high,
+            gain_r: 0.0,
+            gain_g: 0.0,
+            gain_b: 0.0,
+        };
 
         assert_relative_eq!(s.get_wavelength_delta(), 2.2);
 

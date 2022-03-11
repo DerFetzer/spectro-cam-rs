@@ -1,6 +1,6 @@
 use crate::camera::CameraInfo;
-use crate::config::{CameraControl, ReferencePoint, SpectrometerConfig};
-use crate::spectrum::{Spectrum, SpectrumRgb};
+use crate::config::{CameraControl, ReferencePoint, SpectrometerConfig, SpectrumCalibration};
+use crate::spectrum::{Spectrum, SpectrumExportPoint, SpectrumRgb};
 use crate::CameraEvent;
 use biquad::{
     Biquad, Coefficients, DirectForm2Transposed, Hertz, ToHertz, Type, Q_BUTTERWORTH_F32,
@@ -222,7 +222,7 @@ impl SpectrometerGui {
         }
     }
 
-    fn spectrum_channel_to_line(&mut self, channel_index: usize) -> Line {
+    fn spectrum_channel_to_line(&self, channel_index: usize) -> Line {
         Line::new({
             let calibration = self.config.spectrum_calibration;
             Values::from_values_iter(self.spectrum.row(channel_index).iter().enumerate().map(
@@ -233,6 +233,26 @@ impl SpectrometerGui {
                 },
             ))
         })
+    }
+
+    fn spectrum_to_point_vec(
+        spectrum: &Spectrum,
+        spectrum_calibration: &SpectrumCalibration,
+    ) -> Vec<SpectrumExportPoint> {
+        spectrum
+            .column_iter()
+            .enumerate()
+            .map(|(i, p)| {
+                let x = spectrum_calibration.get_wavelength_from_index(i);
+                SpectrumExportPoint {
+                    wavelength: x,
+                    r: p[0],
+                    g: p[1],
+                    b: p[2],
+                    sum: p[3],
+                }
+            })
+            .collect()
     }
 
     fn draw_spectrum(&mut self, ctx: &Context) {
@@ -475,6 +495,13 @@ impl SpectrometerGui {
                         .text("Cutoff"),
                     );
                 });
+                ui.separator();
+                ui.add_enabled(
+                    self.config.reference_config.reference.is_some(),
+                    Slider::new(&mut self.config.reference_config.scale, 0.001..=100.)
+                        .logarithmic(true)
+                        .text("Reference Scale"),
+                );
             });
     }
 
@@ -565,15 +592,16 @@ impl SpectrometerGui {
             });
     }
 
-    fn draw_reference_window(&mut self, ctx: &Context) {
-        egui::Window::new("Reference")
-            .open(&mut self.config.view_config.show_reference_window)
+    fn draw_import_export_window(&mut self, ctx: &Context) {
+        egui::Window::new("Import/Export")
+            .open(&mut self.config.view_config.show_import_export_window)
             .show(ctx, |ui| {
-                ui.text_edit_singleline(&mut self.config.reference_config.path);
-                let load_button = ui.button("Load Reference CSV");
+                ui.text_edit_singleline(&mut self.config.import_export_config.path);
+                ui.separator();
+                let load_button = ui.button("Import Reference CSV");
                 if load_button.clicked() {
                     let mut reader =
-                        csv::Reader::from_path(&self.config.reference_config.path).unwrap();
+                        csv::Reader::from_path(&self.config.import_export_config.path).unwrap();
                     let r: Vec<ReferencePoint> =
                         reader.deserialize().map(|rp| rp.unwrap()).collect();
                     self.config.reference_config.reference = Some(r);
@@ -586,11 +614,18 @@ impl SpectrometerGui {
                     self.config.reference_config.reference = None;
                 }
                 ui.separator();
-                ui.add(
-                    Slider::new(&mut self.config.reference_config.scale, 0.001..=100.)
-                        .logarithmic(true)
-                        .text("Reference Scale"),
-                );
+                let export_button = ui.add(Button::new("Export Spectrum"));
+                if export_button.clicked() {
+                    let mut writer =
+                        csv::Writer::from_path(&self.config.import_export_config.path).unwrap();
+                    for p in Self::spectrum_to_point_vec(
+                        &self.spectrum,
+                        &self.config.spectrum_calibration,
+                    ) {
+                        writer.serialize(p).unwrap();
+                    }
+                    writer.flush().unwrap();
+                }
             });
     }
 
@@ -599,7 +634,7 @@ impl SpectrometerGui {
         self.draw_calibration_window(ctx);
         self.draw_postprocessing_window(ctx);
         self.draw_camera_control_window(ctx);
-        self.draw_reference_window(ctx);
+        self.draw_import_export_window(ctx);
     }
 
     fn draw_connection_panel(&mut self, ctx: &Context) {
@@ -675,8 +710,8 @@ impl SpectrometerGui {
                 "Postprocessing",
             );
             ui.checkbox(
-                &mut self.config.view_config.show_reference_window,
-                "Reference",
+                &mut self.config.view_config.show_import_export_window,
+                "Import/Export",
             );
         });
     }
