@@ -72,11 +72,12 @@ fn main() {
     let (window_tx, window_rx) = flume::unbounded();
     let (spectrum_tx, spectrum_rx) = flume::unbounded();
     let (config_tx, config_rx) = flume::unbounded();
+    let (result_tx, result_rx) = flume::unbounded();
 
-    std::thread::spawn(move || CameraThread::new(frame_tx, window_tx, config_rx).run());
+    std::thread::spawn(move || CameraThread::new(frame_tx, window_tx, config_rx, result_tx).run());
     std::thread::spawn(move || SpectrumCalculator::new(window_rx, spectrum_tx).run());
 
-    let mut gui = SpectrometerGui::new(texture_id, config_tx, spectrum_rx, config);
+    let mut gui = SpectrometerGui::new(texture_id, config_tx, spectrum_rx, config, result_rx);
 
     event_loop.run(move |event, _, control_flow| {
         if let Ok(frame) = frame_rx.try_recv() {

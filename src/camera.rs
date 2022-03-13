@@ -2,6 +2,7 @@ use crate::config::{CameraControl, ImageConfig};
 use flume::{Receiver, Sender};
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
 use nokhwa::{CameraFormat, FrameFormat, Resolution, ThreadedCamera};
+use spectro_cam_rs::{ThreadId, ThreadResult};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use v4l::Control;
@@ -35,6 +36,7 @@ pub struct CameraThread {
     frame_tx: Sender<ImageBuffer<Rgb<u8>, Vec<u8>>>,
     window_tx: Sender<ImageBuffer<Rgb<u8>, Vec<u8>>>,
     config_rx: Receiver<CameraEvent>,
+    result_tx: Sender<ThreadResult>,
 }
 
 impl CameraThread {
@@ -42,11 +44,13 @@ impl CameraThread {
         frame_tx: Sender<ImageBuffer<Rgb<u8>, Vec<u8>>>,
         window_tx: Sender<ImageBuffer<Rgb<u8>, Vec<u8>>>,
         config_rx: Receiver<CameraEvent>,
+        result_tx: Sender<ThreadResult>,
     ) -> Self {
         Self {
             frame_tx,
             window_tx,
             config_rx,
+            result_tx,
         }
     }
 
@@ -63,11 +67,43 @@ impl CameraThread {
                     CameraEvent::StartStream { id, format } => {
                         let frame_tx = self.frame_tx.clone();
                         let window_tx = self.window_tx.clone();
+                        let result_tx = self.result_tx.clone();
                         let exit_rx = exit_rx.clone();
                         let hdl = std::thread::spawn(move || {
-                            let mut camera = ThreadedCamera::new(id, Some(format)).unwrap();
+                            let mut camera = match ThreadedCamera::new(id, Some(format)) {
+                                Ok(camera) => camera,
+                                Err(e) => {
+                                    log::error!("{:?}", e);
+                                    result_tx
+                                        .send(ThreadResult {
+                                            id: ThreadId::Camera,
+                                            result: Err("Could not initialize camera".into()),
+                                        })
+                                        .unwrap();
+                                    return;
+                                }
+                            };
 
-                            camera.open_stream(|_| {}).unwrap();
+                            match camera.open_stream(|_| {}) {
+                                Ok(_) => {}
+                                Err(e) => {
+                                    log::error!("{:?}", e);
+                                    result_tx
+                                        .send(ThreadResult {
+                                            id: ThreadId::Camera,
+                                            result: Err("Could not open stream".into()),
+                                        })
+                                        .unwrap();
+                                    return;
+                                }
+                            };
+
+                            result_tx
+                                .send(ThreadResult {
+                                    id: ThreadId::Camera,
+                                    result: Ok(()),
+                                })
+                                .unwrap();
 
                             let mut inner_config = None;
 
@@ -87,7 +123,19 @@ impl CameraThread {
                                     }
                                 }
                                 // Get frame
-                                let frame = camera.poll_frame().unwrap();
+                                let frame = match camera.poll_frame() {
+                                    Ok(frame) => frame,
+                                    Err(e) => {
+                                        log::error!("{:?}", e);
+                                        result_tx
+                                            .send(ThreadResult {
+                                                id: ThreadId::Camera,
+                                                result: Err("Could not poll for frame".into()),
+                                            })
+                                            .unwrap();
+                                        return;
+                                    }
+                                };
 
                                 // TODO: Remove repacking after nokhwa uses image = "0.24"
                                 let (width, heigth) = frame.dimensions();
@@ -122,8 +170,8 @@ impl CameraThread {
                     }
                     CameraEvent::StopStream => {
                         if let Some(hdl) = join_handle.take() {
-                            exit_tx.send(Exit {}).unwrap();
-                            hdl.join().unwrap();
+                            exit_tx.send(Exit {}).ok();
+                            hdl.join().ok();
                         }
                     }
                     CameraEvent::Config(cfg) => {

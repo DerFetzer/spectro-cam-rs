@@ -1,5 +1,5 @@
 use crate::camera::CameraInfo;
-use crate::config::{CameraControl, ReferencePoint, SpectrometerConfig, SpectrumCalibration};
+use crate::config::{CameraControl, SpectrometerConfig, SpectrumCalibration};
 use crate::spectrum::{Spectrum, SpectrumExportPoint, SpectrumRgb};
 use crate::CameraEvent;
 use biquad::{
@@ -7,13 +7,14 @@ use biquad::{
 };
 use egui::plot::{Legend, Line, Plot, VLine, Value, Values};
 use egui::{
-    Button, Checkbox, Color32, ComboBox, Context, Rect, Rounding, Sense, Slider, Stroke, TextureId,
-    Vec2,
+    Button, Checkbox, Color32, ComboBox, Context, Rect, RichText, Rounding, Sense, Slider, Stroke,
+    TextureId, Vec2,
 };
 use flume::{Receiver, Sender};
 use glium::glutin::dpi::PhysicalSize;
 use nokhwa::{query, Camera};
 use rayon::prelude::*;
+use spectro_cam_rs::{ThreadId, ThreadResult};
 use std::any::Any;
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
@@ -32,6 +33,8 @@ pub struct SpectrometerGui {
     camera_config_tx: Sender<CameraEvent>,
     camera_config_change_pending: bool,
     spectrum_rx: Receiver<SpectrumRgb>,
+    result_rx: Receiver<ThreadResult>,
+    last_error: Option<ThreadResult>,
 }
 
 impl SpectrometerGui {
@@ -40,6 +43,7 @@ impl SpectrometerGui {
         camera_config_tx: Sender<CameraEvent>,
         spectrum_rx: Receiver<SpectrumRgb>,
         config: SpectrometerConfig,
+        result_rx: Receiver<ThreadResult>,
     ) -> Self {
         let spectrum_width = config.camera_format.width();
         let mut gui = Self {
@@ -54,6 +58,8 @@ impl SpectrometerGui {
             camera_config_tx,
             camera_config_change_pending: false,
             spectrum_rx,
+            result_rx,
+            last_error: None,
         };
         gui.query_cameras();
         gui
@@ -62,10 +68,10 @@ impl SpectrometerGui {
     fn query_cameras(&mut self) {
         let default_camera_formats = CameraInfo::get_default_camera_formats();
 
-        for i in query().unwrap().iter().map(|c| c.index()) {
+        for i in query().unwrap_or_default().iter().map(|c| c.index()) {
             for format in default_camera_formats.iter() {
                 if let Ok(cam) = Camera::new(i, Some(*format)).borrow_mut() {
-                    let mut formats = cam.compatible_camera_formats().unwrap();
+                    let mut formats = cam.compatible_camera_formats().unwrap_or_default();
                     formats.sort_by_key(|cf| cf.width());
                     self.camera_info.insert(
                         i,
@@ -95,11 +101,14 @@ impl SpectrometerGui {
             if let Ok(cam) = Camera::new(self.config.camera_id, Some(format)) {
                 self.camera_raw_controls = cam
                     .raw_supported_camera_controls()
-                    .unwrap()
+                    .unwrap_or_default()
                     .into_iter()
-                    .filter(|c| {
-                        let c = c.downcast_ref::<Description>().unwrap();
-                        !c.flags.contains(Flags::READ_ONLY) && !c.flags.contains(Flags::WRITE_ONLY)
+                    .filter(|c| match c.downcast_ref::<Description>() {
+                        None => false,
+                        Some(c) => {
+                            !c.flags.contains(Flags::READ_ONLY)
+                                && !c.flags.contains(Flags::WRITE_ONLY)
+                        }
                     })
                     .collect();
 
@@ -107,7 +116,10 @@ impl SpectrometerGui {
                     .camera_raw_controls
                     .iter()
                     .filter_map(|ctrl| {
-                        let descr = ctrl.downcast_ref::<Description>().unwrap();
+                        let descr = match ctrl.downcast_ref::<Description>() {
+                            None => return None,
+                            Some(descr) => descr,
+                        };
                         if descr.flags.contains(Flags::READ_ONLY)
                             || descr.flags.contains(Flags::WRITE_ONLY)
                         {
@@ -115,8 +127,7 @@ impl SpectrometerGui {
                         } else {
                             let rcc = *cam
                                 .raw_camera_control(&descr.id)
-                                .unwrap()
-                                .downcast::<Control>()
+                                .map(|c| c.downcast::<Control>().unwrap())
                                 .unwrap();
                             let value = match rcc {
                                 Control::Value(v) => v,
@@ -133,17 +144,6 @@ impl SpectrometerGui {
                 break;
             }
         }
-        log::info!(
-            "{:?}",
-            self.camera_raw_controls
-                .iter()
-                .map(|c| {
-                    let c = c.downcast_ref::<Description>().unwrap();
-                    (c.id, c.name.clone(), c.flags, c.typ)
-                })
-                .collect::<Vec<(u32, String, Flags, v4l::control::Type)>>()
-        );
-        log::info!("{:?}", self.camera_controls);
         self.spectrum_buffer.clear();
         self.send_config();
         self.camera_config_tx
@@ -511,12 +511,14 @@ impl SpectrometerGui {
             .show(ctx, |ui| {
                 let mut changed_controls = vec![];
                 for ctrl in &mut self.camera_raw_controls {
-                    let ctrl = ctrl.downcast_ref::<Description>().unwrap();
-                    let own_ctrl = self
-                        .camera_controls
-                        .iter_mut()
-                        .find(|c| c.id == ctrl.id)
-                        .unwrap();
+                    let ctrl = match ctrl.downcast_ref::<Description>() {
+                        None => continue,
+                        Some(ctrl) => ctrl,
+                    };
+                    let own_ctrl = match self.camera_controls.iter_mut().find(|c| c.id == ctrl.id) {
+                        None => continue,
+                        Some(own_ctrl) => own_ctrl,
+                    };
                     let value_changed = match ctrl.typ {
                         v4l::control::Type::Integer => ui
                             .add(
@@ -536,19 +538,19 @@ impl SpectrometerGui {
                         }
                         v4l::control::Type::Menu => {
                             let mut changed = false;
+                            let items = match ctrl.items.as_ref() {
+                                None => continue,
+                                Some(items) => items,
+                            };
+                            let selected_text =
+                                match items.iter().find(|&i| i.0 == own_ctrl.value as u32) {
+                                    None => continue,
+                                    Some(i) => i.1.to_string(),
+                                };
                             ComboBox::from_label(&ctrl.name)
-                                .selected_text(
-                                    ctrl.items
-                                        .as_ref()
-                                        .unwrap()
-                                        .iter()
-                                        .find(|&i| i.0 == own_ctrl.value as u32)
-                                        .unwrap()
-                                        .1
-                                        .to_string(),
-                                )
+                                .selected_text(selected_text)
                                 .show_ui(ui, |ui| {
-                                    for item in ctrl.items.as_ref().unwrap().iter() {
+                                    for item in items.iter() {
                                         changed |= ui
                                             .selectable_value(
                                                 &mut own_ctrl.value,
@@ -569,12 +571,15 @@ impl SpectrometerGui {
                 let default_button = ui.button("All default");
                 if default_button.clicked() {
                     for ctrl in &mut self.camera_raw_controls {
-                        let ctrl = ctrl.downcast_ref::<Description>().unwrap();
-                        let own_ctrl = self
-                            .camera_controls
-                            .iter_mut()
-                            .find(|c| c.id == ctrl.id)
-                            .unwrap();
+                        let ctrl = match ctrl.downcast_ref::<Description>() {
+                            None => continue,
+                            Some(ctrl) => ctrl,
+                        };
+                        let own_ctrl =
+                            match self.camera_controls.iter_mut().find(|c| c.id == ctrl.id) {
+                                None => continue,
+                                Some(own_ctrl) => own_ctrl,
+                            };
 
                         own_ctrl.value = ctrl.default;
                     }
@@ -600,11 +605,23 @@ impl SpectrometerGui {
                 ui.separator();
                 let load_button = ui.button("Import Reference CSV");
                 if load_button.clicked() {
-                    let mut reader =
-                        csv::Reader::from_path(&self.config.import_export_config.path).unwrap();
-                    let r: Vec<ReferencePoint> =
-                        reader.deserialize().map(|rp| rp.unwrap()).collect();
-                    self.config.reference_config.reference = Some(r);
+                    match csv::Reader::from_path(&self.config.import_export_config.path)
+                        .and_then(|mut r| r.deserialize().collect())
+                    {
+                        Ok(r) => {
+                            self.config.reference_config.reference = Some(r);
+                            self.last_error = Some(ThreadResult {
+                                id: ThreadId::Main,
+                                result: Ok(()),
+                            });
+                        }
+                        Err(e) => {
+                            self.last_error = Some(ThreadResult {
+                                id: ThreadId::Main,
+                                result: Err(e.to_string()),
+                            });
+                        }
+                    };
                 }
                 let delete_button = ui.add_enabled(
                     self.config.reference_config.reference.is_some(),
@@ -646,9 +663,8 @@ impl SpectrometerGui {
                         self.config.camera_id,
                         self.camera_info
                             .get(&self.config.camera_id)
-                            .unwrap()
-                            .info
-                            .human_name()
+                            .map(|ci| ci.info.human_name())
+                            .unwrap_or_default()
                     ))
                     .show_ui(ui, |ui| {
                         if !self.running {
@@ -665,18 +681,14 @@ impl SpectrometerGui {
                     .selected_text(format!("{}", self.config.camera_format))
                     .show_ui(ui, |ui| {
                         if !self.running {
-                            for cf in self
-                                .camera_info
-                                .get(&self.config.camera_id)
-                                .unwrap()
-                                .formats
-                                .iter()
-                            {
-                                ui.selectable_value(
-                                    &mut self.config.camera_format,
-                                    *cf,
-                                    format!("{}", cf),
-                                );
+                            if let Some(ci) = self.camera_info.get(&self.config.camera_id) {
+                                for cf in ci.formats.iter() {
+                                    ui.selectable_value(
+                                        &mut self.config.camera_format,
+                                        *cf,
+                                        format!("{}", cf),
+                                    );
+                                }
                             }
                         }
                     });
@@ -716,6 +728,29 @@ impl SpectrometerGui {
         });
     }
 
+    fn draw_last_result(&mut self, ctx: &Context) {
+        egui::TopBottomPanel::bottom("result").show(ctx, |ui| {
+            if let Some(res) = self.last_error.as_ref() {
+                ui.label(match &res.result {
+                    Ok(()) => RichText::new("OK").color(Color32::GREEN),
+                    Err(e) => RichText::new(format!("Error: {}", e)).color(Color32::RED),
+                })
+            } else {
+                ui.label("")
+            }
+        });
+    }
+
+    fn handle_thread_result(&mut self, res: &ThreadResult) {
+        if let ThreadResult {
+            id: ThreadId::Camera,
+            result: Err(_),
+        } = res
+        {
+            self.running = false;
+        }
+    }
+
     pub fn update(&mut self, ctx: &Context) {
         if self.running {
             ctx.request_repaint();
@@ -725,14 +760,22 @@ impl SpectrometerGui {
             self.update_spectrum(spectrum);
         }
 
+        if let Ok(error) = self.result_rx.try_recv() {
+            self.handle_thread_result(&error);
+            self.last_error = Some(error);
+        }
+
         self.draw_connection_panel(ctx);
         self.draw_window_selection_panel(ctx);
         self.draw_windows(ctx);
         self.draw_spectrum(ctx);
+        self.draw_last_result(ctx);
     }
 
     pub fn persist_config(&mut self, window_size: PhysicalSize<u32>) {
         self.config.view_config.window_size = window_size;
-        confy::store("spectro-cam-rs", None, self.config.clone()).unwrap();
+        if let Err(e) = confy::store("spectro-cam-rs", None, self.config.clone()) {
+            log::error!("Could not persist config: {:?}", e);
+        }
     }
 }
