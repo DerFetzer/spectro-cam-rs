@@ -34,6 +34,7 @@ pub struct SpectrometerGui {
     webcam_texture_id: TextureId,
     spectrum: Spectrum,
     spectrum_buffer: Vec<Spectrum>,
+    zero_reference: Option<Spectrum>,
     camera_config_tx: Sender<CameraEvent>,
     camera_config_change_pending: bool,
     spectrum_rx: Receiver<SpectrumRgb>,
@@ -59,6 +60,7 @@ impl SpectrometerGui {
             webcam_texture_id,
             spectrum: Spectrum::zeros(spectrum_width as usize),
             spectrum_buffer: Vec::new(),
+            zero_reference: None,
             camera_config_tx,
             camera_config_change_pending: false,
             spectrum_rx,
@@ -246,6 +248,10 @@ impl SpectrometerGui {
                     *sample = biquad.run(*sample);
                 }
             }
+        }
+
+        if let Some(zero_reference) = self.zero_reference.as_ref() {
+            self.spectrum -= zero_reference;
         }
     }
 
@@ -529,6 +535,21 @@ impl SpectrometerGui {
                         .logarithmic(true)
                         .text("Reference Scale"),
                 );
+                ui.separator();
+                let set_zero_button = ui.add_enabled(
+                    self.zero_reference.is_none(),
+                    Button::new("Set Current As Zero Reference"),
+                );
+                if set_zero_button.clicked() {
+                    self.zero_reference = Some(self.spectrum.clone());
+                }
+                let clear_zero_button = ui.add_enabled(
+                    self.zero_reference.is_some(),
+                    Button::new("Clear Zero Reference"),
+                );
+                if clear_zero_button.clicked() {
+                    self.zero_reference = None;
+                }
             });
     }
 
