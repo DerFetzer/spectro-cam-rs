@@ -18,8 +18,12 @@ use spectro_cam_rs::{ThreadId, ThreadResult};
 use std::any::Any;
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
-use v4l::control::{Description, Flags};
-use v4l::Control;
+
+#[cfg(target_os = "linux")]
+use v4l::{
+    control::{Description, Flags},
+    Control,
+};
 
 pub struct SpectrometerGui {
     config: SpectrometerConfig,
@@ -99,48 +103,10 @@ impl SpectrometerGui {
         let default_camera_formats = CameraInfo::get_default_camera_formats();
         for format in default_camera_formats {
             if let Ok(cam) = Camera::new(self.config.camera_id, Some(format)) {
-                self.camera_raw_controls = cam
-                    .raw_supported_camera_controls()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter(|c| match c.downcast_ref::<Description>() {
-                        None => false,
-                        Some(c) => {
-                            !c.flags.contains(Flags::READ_ONLY)
-                                && !c.flags.contains(Flags::WRITE_ONLY)
-                        }
-                    })
-                    .collect();
+                let raw_controls = Self::get_raw_controls(&cam);
 
-                self.camera_controls = self
-                    .camera_raw_controls
-                    .iter()
-                    .filter_map(|ctrl| {
-                        let descr = match ctrl.downcast_ref::<Description>() {
-                            None => return None,
-                            Some(descr) => descr,
-                        };
-                        if descr.flags.contains(Flags::READ_ONLY)
-                            || descr.flags.contains(Flags::WRITE_ONLY)
-                        {
-                            None
-                        } else {
-                            let rcc = *cam
-                                .raw_camera_control(&descr.id)
-                                .map(|c| c.downcast::<Control>().unwrap())
-                                .unwrap();
-                            let value = match rcc {
-                                Control::Value(v) => v,
-                                _ => return None,
-                            };
-                            Some(CameraControl {
-                                id: descr.id,
-                                name: descr.name.clone(),
-                                value,
-                            })
-                        }
-                    })
-                    .collect();
+                self.camera_controls = Self::get_controls_from_raw_controls(cam, &raw_controls);
+                self.camera_raw_controls = raw_controls;
                 break;
             }
         }
@@ -152,6 +118,67 @@ impl SpectrometerGui {
                 format: self.config.camera_format,
             })
             .unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    fn get_raw_controls(cam: &Camera) -> Vec<Box<dyn Any>> {
+        cam.raw_supported_camera_controls()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|c| match c.downcast_ref::<Description>() {
+                None => false,
+                Some(c) => {
+                    !c.flags.contains(Flags::READ_ONLY) && !c.flags.contains(Flags::WRITE_ONLY)
+                }
+            })
+            .collect()
+    }
+
+    #[cfg(target_os = "linux")]
+    fn get_controls_from_raw_controls(
+        cam: Camera,
+        raw_controls: &Vec<Box<dyn Any>>,
+    ) -> Vec<CameraControl> {
+        raw_controls
+            .iter()
+            .filter_map(|ctrl| {
+                let descr = match ctrl.downcast_ref::<Description>() {
+                    None => return None,
+                    Some(descr) => descr,
+                };
+                if descr.flags.contains(Flags::READ_ONLY) || descr.flags.contains(Flags::WRITE_ONLY)
+                {
+                    None
+                } else {
+                    let rcc = *cam
+                        .raw_camera_control(&descr.id)
+                        .map(|c| c.downcast::<Control>().unwrap())
+                        .unwrap();
+                    let value = match rcc {
+                        Control::Value(v) => v,
+                        _ => return None,
+                    };
+                    Some(CameraControl {
+                        id: descr.id,
+                        name: descr.name.clone(),
+                        value,
+                    })
+                }
+            })
+            .collect()
+    }
+
+    #[cfg(target_os = "windows")]
+    fn get_raw_controls(cam: &Camera) -> Vec<Box<dyn Any>> {
+        Vec::new()
+    }
+
+    #[cfg(target_os = "windows")]
+    fn get_controls_from_raw_controls(
+        cam: Camera,
+        raw_controls: &Vec<Box<dyn Any>>,
+    ) -> Vec<CameraControl> {
+        Vec::new()
     }
 
     fn stop_stream(&mut self) {
@@ -505,6 +532,7 @@ impl SpectrometerGui {
             });
     }
 
+    #[cfg(target_os = "linux")]
     fn draw_camera_control_window(&mut self, ctx: &Context) {
         egui::Window::new("Camera Controls")
             .open(&mut self.config.view_config.show_camera_control_window)
@@ -596,6 +624,9 @@ impl SpectrometerGui {
                 }
             });
     }
+
+    #[cfg(target_os = "windows")]
+    fn draw_camera_control_window(&mut self, ctx: &Context) {}
 
     fn draw_import_export_window(&mut self, ctx: &Context) {
         egui::Window::new("Import/Export")

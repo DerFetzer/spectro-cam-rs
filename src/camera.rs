@@ -5,6 +5,8 @@ use nokhwa::{CameraFormat, FrameFormat, Resolution, ThreadedCamera};
 use spectro_cam_rs::{ThreadId, ThreadResult};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+#[cfg(target_os = "linux")]
 use v4l::Control;
 
 #[derive(Debug, Clone)]
@@ -186,10 +188,13 @@ impl CameraThread {
         }
     }
 
+    #[cfg(target_os = "linux")]
     fn set_control(camera: &mut ThreadedCamera, control: &CameraControl) {
         camera
             .set_raw_camera_control(&control.id, &Control::Value(control.value))
             .map_err(|e| log::warn!("Could not write camera control: {:?}", e))
             .ok();
     }
+    #[cfg(target_os = "windows")]
+    fn set_control(camera: &mut ThreadedCamera, control: &CameraControl) {}
 }
