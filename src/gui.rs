@@ -7,8 +7,8 @@ use biquad::{
 };
 use egui::plot::{Legend, Line, Plot, VLine, Value, Values};
 use egui::{
-    Button, Checkbox, Color32, ComboBox, Context, Rect, RichText, Rounding, Sense, Slider, Stroke,
-    TextureId, Vec2,
+    Button, Color32, ComboBox, Context, Rect, RichText, Rounding, Sense, Slider, Stroke, TextureId,
+    Vec2,
 };
 use flume::{Receiver, Sender};
 use glium::glutin::dpi::PhysicalSize;
@@ -170,15 +170,15 @@ impl SpectrometerGui {
             .collect()
     }
 
-    #[cfg(target_os = "windows")]
-    fn get_raw_controls(cam: &Camera) -> Vec<Box<dyn Any>> {
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    fn get_raw_controls(_cam: &Camera) -> Vec<Box<dyn Any>> {
         Vec::new()
     }
 
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     fn get_controls_from_raw_controls(
-        cam: Camera,
-        raw_controls: &Vec<Box<dyn Any>>,
+        _cam: Camera,
+        _raw_controls: &Vec<Box<dyn Any>>,
     ) -> Vec<CameraControl> {
         Vec::new()
     }
@@ -582,7 +582,7 @@ impl SpectrometerGui {
                             .changed(),
                         v4l::control::Type::Boolean => {
                             let mut checked = own_ctrl.value == 1;
-                            let response = ui.add(Checkbox::new(&mut checked, &ctrl.name));
+                            let response = ui.checkbox(&mut checked, &ctrl.name);
                             own_ctrl.value = checked as i32;
                             response.changed()
                         }
@@ -647,8 +647,8 @@ impl SpectrometerGui {
             });
     }
 
-    #[cfg(target_os = "windows")]
-    fn draw_camera_control_window(&mut self, ctx: &Context) {}
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    fn draw_camera_control_window(&mut self, _ctx: &Context) {}
 
     fn draw_import_export_window(&mut self, ctx: &Context) {
         egui::Window::new("Import/Export")

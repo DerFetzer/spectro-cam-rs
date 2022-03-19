@@ -26,9 +26,13 @@ impl CameraInfo {
 
 #[derive(Debug, Clone)]
 pub enum CameraEvent {
-    StartStream { id: usize, format: CameraFormat },
+    StartStream {
+        id: usize,
+        format: CameraFormat,
+    },
     StopStream,
     Config(ImageConfig),
+    #[cfg(target_os = "linux")]
     Controls(Vec<CameraControl>),
 }
 
@@ -179,6 +183,7 @@ impl CameraThread {
                     CameraEvent::Config(cfg) => {
                         *config.lock().unwrap() = Some(cfg);
                     }
+                    #[cfg(target_os = "linux")]
                     CameraEvent::Controls(ctrls) => {
                         *controls.lock().unwrap() = Some(ctrls);
                     }
@@ -195,6 +200,6 @@ impl CameraThread {
             .map_err(|e| log::warn!("Could not write camera control: {:?}", e))
             .ok();
     }
-    #[cfg(target_os = "windows")]
-    fn set_control(camera: &mut ThreadedCamera, control: &CameraControl) {}
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    fn set_control(_camera: &mut ThreadedCamera, _control: &CameraControl) {}
 }
