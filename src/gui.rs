@@ -190,10 +190,11 @@ impl SpectrometerGui {
     fn update_spectrum(&mut self, mut spectrum: SpectrumRgb) {
         let ncols = spectrum.ncols();
 
-        // Clear buffer on dimension change
+        // Clear buffer and zero reference on dimension change
         if let Some(s) = self.spectrum_buffer.get(0) {
             if s.ncols() != ncols {
                 self.spectrum_buffer.clear();
+                self.zero_reference = None;
             }
         }
 
