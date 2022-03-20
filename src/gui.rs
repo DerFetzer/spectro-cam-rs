@@ -1,5 +1,5 @@
 use crate::camera::CameraInfo;
-use crate::config::{CameraControl, SpectrometerConfig, SpectrumCalibration};
+use crate::config::{CameraControl, Linearize, SpectrometerConfig, SpectrumCalibration};
 use crate::spectrum::{Spectrum, SpectrumExportPoint, SpectrumRgb};
 use crate::CameraEvent;
 use biquad::{
@@ -196,6 +196,12 @@ impl SpectrometerGui {
                 self.spectrum_buffer.clear();
                 self.zero_reference = None;
             }
+        }
+
+        if self.config.spectrum_calibration.linearize != Linearize::Off {
+            spectrum
+                .iter_mut()
+                .for_each(|v| *v = self.config.spectrum_calibration.linearize.linearize(*v))
         }
 
         spectrum.set_row(
@@ -487,6 +493,30 @@ impl SpectrometerGui {
                     .text("High Index"),
                 );
                 ui.separator();
+                ComboBox::from_label("Linearize")
+                    .selected_text(self.config.spectrum_calibration.linearize.to_string())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut self.config.spectrum_calibration.linearize,
+                            Linearize::Off,
+                            Linearize::Off.to_string(),
+                        );
+                        ui.selectable_value(
+                            &mut self.config.spectrum_calibration.linearize,
+                            Linearize::Rec601,
+                            Linearize::Rec601.to_string(),
+                        );
+                        ui.selectable_value(
+                            &mut self.config.spectrum_calibration.linearize,
+                            Linearize::Rec709,
+                            Linearize::Rec709.to_string(),
+                        );
+                        ui.selectable_value(
+                            &mut self.config.spectrum_calibration.linearize,
+                            Linearize::SRgb,
+                            Linearize::SRgb.to_string(),
+                        );
+                    });
                 ui.add(
                     Slider::new(&mut self.config.spectrum_calibration.gain_r, 0.0..=10.)
                         .text("Gain R"),

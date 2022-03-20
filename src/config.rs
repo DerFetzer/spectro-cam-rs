@@ -4,6 +4,48 @@ use egui::Vec2;
 use glium::glutin::dpi::PhysicalSize;
 use nokhwa::{CameraFormat, FrameFormat, Resolution};
 use serde::{Deserialize, Serialize};
+use std::fmt::{Display, Formatter};
+
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone, Copy)]
+pub enum Linearize {
+    Off,
+    Rec601,
+    Rec709,
+    SRgb,
+}
+
+impl Display for Linearize {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Linearize::Off => write!(f, "Off"),
+            Linearize::Rec601 => write!(f, "Rec. 601"),
+            Linearize::Rec709 => write!(f, "Rec. 709"),
+            Linearize::SRgb => write!(f, "sRGB"),
+        }
+    }
+}
+
+impl Linearize {
+    pub fn linearize(&self, value: f32) -> f32 {
+        match self {
+            Linearize::Off => value,
+            Linearize::Rec709 | Linearize::Rec601 => {
+                if value < 0.081 {
+                    value / 4.5
+                } else {
+                    ((value + 0.099) / 1.099).powf(1. / 0.45)
+                }
+            }
+            Linearize::SRgb => {
+                if value < 0.04045 {
+                    value / 12.92
+                } else {
+                    ((value + 0.055) / 1.055).powf(2.4)
+                }
+            }
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
 pub struct ImportExportConfig {
@@ -117,6 +159,7 @@ pub struct SpectrumCalibrationPoint {
 pub struct SpectrumCalibration {
     pub low: SpectrumCalibrationPoint,
     pub high: SpectrumCalibrationPoint,
+    pub linearize: Linearize,
     pub gain_r: f32,
     pub gain_g: f32,
     pub gain_b: f32,
@@ -145,6 +188,7 @@ impl Default for SpectrumCalibration {
                 wavelength: 546,
                 index: 486,
             },
+            linearize: Linearize::Off,
             gain_r: 1.0,
             gain_g: 1.0,
             gain_b: 1.0,
