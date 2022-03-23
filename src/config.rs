@@ -171,6 +171,36 @@ pub struct SpectrumCalibrationPoint {
     pub index: usize,
 }
 
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone, Copy)]
+pub enum GainPresets {
+    Unity,
+    Rec601,
+    Rec709,
+    SRgb,
+}
+
+impl GainPresets {
+    pub fn get_gain(&self) -> (f32, f32, f32) {
+        match self {
+            GainPresets::Unity => (1., 1., 1.),
+            GainPresets::Rec601 => (0.299, 0.587, 0.114),
+            GainPresets::Rec709 => (0.2126, 0.7152, 0.0722),
+            GainPresets::SRgb => (0.2126, 0.7152, 0.0722),
+        }
+    }
+}
+
+impl Display for GainPresets {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GainPresets::Unity => write!(f, "Unity"),
+            GainPresets::Rec601 => write!(f, "Rec. 601"),
+            GainPresets::Rec709 => write!(f, "Rec. 709"),
+            GainPresets::SRgb => write!(f, "sRGB"),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SpectrumCalibration {
     pub low: SpectrumCalibrationPoint,
@@ -199,6 +229,13 @@ impl SpectrumCalibration {
         } else {
             1.
         }
+    }
+
+    pub fn set_gain_preset(&mut self, preset: GainPresets) {
+        let factors = preset.get_gain();
+        self.gain_r = factors.0;
+        self.gain_g = factors.1;
+        self.gain_b = factors.2;
     }
 }
 

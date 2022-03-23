@@ -1,5 +1,7 @@
 use crate::camera::CameraInfo;
-use crate::config::{CameraControl, Linearize, SpectrometerConfig, SpectrumCalibration};
+use crate::config::{
+    CameraControl, GainPresets, Linearize, SpectrometerConfig, SpectrumCalibration,
+};
 use crate::spectrum::{Spectrum, SpectrumExportPoint, SpectrumRgb};
 use crate::CameraEvent;
 use biquad::{
@@ -270,7 +272,7 @@ impl SpectrometerGui {
         }
 
         if let Some(zero_reference) = self.zero_reference.as_ref() {
-            self.spectrum -= zero_reference;
+            current_spectrum -= zero_reference;
         }
 
         self.spectrum = current_spectrum;
@@ -510,26 +512,40 @@ impl SpectrometerGui {
                 ComboBox::from_label("Linearize")
                     .selected_text(self.config.spectrum_calibration.linearize.to_string())
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(
-                            &mut self.config.spectrum_calibration.linearize,
-                            Linearize::Off,
-                            Linearize::Off.to_string(),
-                        );
-                        ui.selectable_value(
-                            &mut self.config.spectrum_calibration.linearize,
-                            Linearize::Rec601,
-                            Linearize::Rec601.to_string(),
-                        );
-                        ui.selectable_value(
-                            &mut self.config.spectrum_calibration.linearize,
-                            Linearize::Rec709,
-                            Linearize::Rec709.to_string(),
-                        );
-                        ui.selectable_value(
-                            &mut self.config.spectrum_calibration.linearize,
-                            Linearize::SRgb,
-                            Linearize::SRgb.to_string(),
-                        );
+                        let mut changed = false;
+                        changed |= ui
+                            .selectable_value(
+                                &mut self.config.spectrum_calibration.linearize,
+                                Linearize::Off,
+                                Linearize::Off.to_string(),
+                            )
+                            .changed();
+                        changed |= ui
+                            .selectable_value(
+                                &mut self.config.spectrum_calibration.linearize,
+                                Linearize::Rec601,
+                                Linearize::Rec601.to_string(),
+                            )
+                            .changed();
+                        changed |= ui
+                            .selectable_value(
+                                &mut self.config.spectrum_calibration.linearize,
+                                Linearize::Rec709,
+                                Linearize::Rec709.to_string(),
+                            )
+                            .changed();
+                        changed |= ui
+                            .selectable_value(
+                                &mut self.config.spectrum_calibration.linearize,
+                                Linearize::SRgb,
+                                Linearize::SRgb.to_string(),
+                            )
+                            .changed();
+
+                        // Clear buffer if value changed
+                        if changed {
+                            self.spectrum_buffer.clear()
+                        }
                     });
                 ui.add(
                     Slider::new(&mut self.config.spectrum_calibration.gain_r, 0.0..=10.)
@@ -543,6 +559,34 @@ impl SpectrometerGui {
                     Slider::new(&mut self.config.spectrum_calibration.gain_b, 0.0..=10.)
                         .text("Gain B"),
                 );
+
+                ui.horizontal(|ui| {
+                    let unity_button = ui.button(GainPresets::Unity.to_string());
+                    if unity_button.clicked() {
+                        self.config
+                            .spectrum_calibration
+                            .set_gain_preset(GainPresets::Unity);
+                    }
+                    let srgb_button = ui.button(GainPresets::SRgb.to_string());
+                    if srgb_button.clicked() {
+                        self.config
+                            .spectrum_calibration
+                            .set_gain_preset(GainPresets::SRgb);
+                    }
+                    let rec601_button = ui.button(GainPresets::Rec601.to_string());
+                    if rec601_button.clicked() {
+                        self.config
+                            .spectrum_calibration
+                            .set_gain_preset(GainPresets::Rec601);
+                    }
+                    let rec709_button = ui.button(GainPresets::Rec709.to_string());
+                    if rec709_button.clicked() {
+                        self.config
+                            .spectrum_calibration
+                            .set_gain_preset(GainPresets::Rec709);
+                    }
+                });
+
                 ui.separator();
                 let set_calibration_button = ui.add_enabled(
                     self.config.reference_config.reference.is_some()
@@ -578,6 +622,22 @@ impl SpectrometerGui {
                 if delete_calibration_button.clicked() {
                     self.config.spectrum_calibration.scaling = None;
                 };
+
+                ui.separator();
+                let set_zero_button = ui.add_enabled(
+                    self.zero_reference.is_none(),
+                    Button::new("Set Current As Zero Reference"),
+                );
+                if set_zero_button.clicked() {
+                    self.zero_reference = Some(self.spectrum.clone());
+                }
+                let clear_zero_button = ui.add_enabled(
+                    self.zero_reference.is_some(),
+                    Button::new("Clear Zero Reference"),
+                );
+                if clear_zero_button.clicked() {
+                    self.zero_reference = None;
+                }
             });
     }
 
@@ -615,21 +675,6 @@ impl SpectrometerGui {
                         .logarithmic(true)
                         .text("Reference Scale"),
                 );
-                ui.separator();
-                let set_zero_button = ui.add_enabled(
-                    self.zero_reference.is_none(),
-                    Button::new("Set Current As Zero Reference"),
-                );
-                if set_zero_button.clicked() {
-                    self.zero_reference = Some(self.spectrum.clone());
-                }
-                let clear_zero_button = ui.add_enabled(
-                    self.zero_reference.is_some(),
-                    Button::new("Clear Zero Reference"),
-                );
-                if clear_zero_button.clicked() {
-                    self.zero_reference = None;
-                }
             });
     }
 
@@ -695,6 +740,7 @@ impl SpectrometerGui {
                     };
                     if value_changed {
                         changed_controls.push(own_ctrl.clone());
+                        self.spectrum_buffer.clear();
                     };
                 }
                 let default_button = ui.button("All default");
@@ -898,8 +944,12 @@ impl SpectrometerGui {
         }
 
         self.draw_connection_panel(ctx);
-        self.draw_window_selection_panel(ctx);
-        self.draw_windows(ctx);
+
+        if self.running {
+            self.draw_window_selection_panel(ctx);
+            self.draw_windows(ctx);
+        }
+
         self.draw_spectrum(ctx);
         self.draw_last_result(ctx);
     }
