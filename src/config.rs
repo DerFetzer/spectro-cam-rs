@@ -83,6 +83,22 @@ impl ReferenceConfig {
             ))
         })
     }
+
+    pub fn get_value_at_wavelength(&self, wavelength: f32) -> Option<f32> {
+        self.reference.as_ref().map(|r| {
+            let mut sorted = r.clone();
+            sorted.sort_by(|a, b| a.wavelength.partial_cmp(&b.wavelength).unwrap());
+            let mut value = None;
+            for (rp1, rp2) in sorted.iter().zip(sorted[1..].iter()) {
+                if wavelength >= rp1.wavelength && wavelength < rp2.wavelength {
+                    let a = (rp1.value - rp2.value) / (rp1.wavelength - rp2.wavelength);
+                    value = Some((a * wavelength + rp1.value - a * rp1.wavelength) * self.scale);
+                    break;
+                }
+            }
+            value.unwrap_or(0.)
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone, Copy, Default)]
@@ -155,7 +171,7 @@ pub struct SpectrumCalibrationPoint {
     pub index: usize,
 }
 
-#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SpectrumCalibration {
     pub low: SpectrumCalibrationPoint,
     pub high: SpectrumCalibrationPoint,
@@ -163,6 +179,7 @@ pub struct SpectrumCalibration {
     pub gain_r: f32,
     pub gain_g: f32,
     pub gain_b: f32,
+    pub scaling: Option<Vec<f32>>,
 }
 
 impl SpectrumCalibration {
@@ -174,6 +191,14 @@ impl SpectrumCalibration {
     pub fn get_wavelength_from_index(&self, index: usize) -> f32 {
         self.low.wavelength as f32
             + (index as f32 - self.low.index as f32) * self.get_wavelength_delta()
+    }
+
+    pub fn get_scaling_factor_from_index(&self, index: usize) -> f32 {
+        if let Some(scaling) = self.scaling.as_ref() {
+            *scaling.get(index).unwrap_or(&1.)
+        } else {
+            1.
+        }
     }
 }
 
@@ -192,6 +217,7 @@ impl Default for SpectrumCalibration {
             gain_r: 1.0,
             gain_g: 1.0,
             gain_b: 1.0,
+            scaling: None,
         }
     }
 }
@@ -260,9 +286,11 @@ mod tests {
         let s = SpectrumCalibration {
             low,
             high,
+            linearize: Linearize::Off,
             gain_r: 0.0,
             gain_g: 0.0,
             gain_b: 0.0,
+            scaling: None,
         };
 
         assert_relative_eq!(s.get_wavelength_delta(), 2.2);

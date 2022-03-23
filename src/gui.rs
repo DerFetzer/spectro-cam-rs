@@ -33,7 +33,7 @@ pub struct SpectrometerGui {
     camera_controls: Vec<CameraControl>,
     webcam_texture_id: TextureId,
     spectrum: Spectrum,
-    spectrum_buffer: Vec<Spectrum>,
+    spectrum_buffer: Vec<SpectrumRgb>,
     zero_reference: Option<Spectrum>,
     camera_config_tx: Sender<CameraEvent>,
     camera_config_change_pending: bool,
@@ -139,7 +139,7 @@ impl SpectrometerGui {
     #[cfg(target_os = "linux")]
     fn get_controls_from_raw_controls(
         cam: Camera,
-        raw_controls: &Vec<Box<dyn Any>>,
+        raw_controls: &[Box<dyn Any>],
     ) -> Vec<CameraControl> {
         raw_controls
             .iter()
@@ -204,35 +204,47 @@ impl SpectrometerGui {
                 .for_each(|v| *v = self.config.spectrum_calibration.linearize.linearize(*v))
         }
 
-        spectrum.set_row(
-            0,
-            &(spectrum.row(0) * self.config.spectrum_calibration.gain_r),
-        );
-        spectrum.set_row(
-            1,
-            &(spectrum.row(1) * self.config.spectrum_calibration.gain_g),
-        );
-        spectrum.set_row(
-            2,
-            &(spectrum.row(2) * self.config.spectrum_calibration.gain_b),
-        );
-
-        let spectrum = Spectrum::from_rows(&[
-            spectrum.row(0).clone_owned(),
-            spectrum.row(1).clone_owned(),
-            spectrum.row(2).clone_owned(),
-            spectrum.row_sum(),
-        ]);
-
         self.spectrum_buffer.insert(0, spectrum);
         self.spectrum_buffer
             .truncate(self.config.postprocessing_config.spectrum_buffer_size);
-        self.spectrum = self
+
+        let mut combined_buffer = self
             .spectrum_buffer
             .par_iter()
             .cloned()
-            .reduce(|| Spectrum::from_element(ncols, 0.), |a, b| a + b)
+            .reduce(|| SpectrumRgb::from_element(ncols, 0.), |a, b| a + b)
             / self.spectrum_buffer.len() as f32;
+
+        combined_buffer.set_row(
+            0,
+            &(combined_buffer.row(0) * self.config.spectrum_calibration.gain_r),
+        );
+        combined_buffer.set_row(
+            1,
+            &(combined_buffer.row(1) * self.config.spectrum_calibration.gain_g),
+        );
+        combined_buffer.set_row(
+            2,
+            &(combined_buffer.row(2) * self.config.spectrum_calibration.gain_b),
+        );
+
+        let mut current_spectrum = Spectrum::from_rows(&[
+            combined_buffer.row(0).clone_owned(),
+            combined_buffer.row(1).clone_owned(),
+            combined_buffer.row(2).clone_owned(),
+            if self.config.spectrum_calibration.scaling.is_some() {
+                let mut sum = combined_buffer.row_sum();
+                sum.iter_mut().enumerate().for_each(|(i, v)| {
+                    *v *= self
+                        .config
+                        .spectrum_calibration
+                        .get_scaling_factor_from_index(i);
+                });
+                sum
+            } else {
+                combined_buffer.row_sum()
+            },
+        ]);
 
         if self.config.postprocessing_config.spectrum_filter_active {
             let cutoff = self
@@ -245,7 +257,7 @@ impl SpectrometerGui {
 
             let coeffs =
                 Coefficients::<f32>::from_params(Type::LowPass, fs, f0, Q_BUTTERWORTH_F32).unwrap();
-            for mut channel in self.spectrum.row_iter_mut() {
+            for mut channel in current_spectrum.row_iter_mut() {
                 let mut biquad = DirectForm2Transposed::<f32>::new(coeffs);
                 for sample in channel.iter_mut() {
                     *sample = biquad.run(*sample);
@@ -260,11 +272,13 @@ impl SpectrometerGui {
         if let Some(zero_reference) = self.zero_reference.as_ref() {
             self.spectrum -= zero_reference;
         }
+
+        self.spectrum = current_spectrum;
     }
 
     fn spectrum_channel_to_line(&self, channel_index: usize) -> Line {
         Line::new({
-            let calibration = self.config.spectrum_calibration;
+            let calibration = &self.config.spectrum_calibration;
             Values::from_values_iter(self.spectrum.row(channel_index).iter().enumerate().map(
                 |(i, p)| {
                     let x = calibration.get_wavelength_from_index(i);
@@ -529,6 +543,41 @@ impl SpectrometerGui {
                     Slider::new(&mut self.config.spectrum_calibration.gain_b, 0.0..=10.)
                         .text("Gain B"),
                 );
+                ui.separator();
+                let set_calibration_button = ui.add_enabled(
+                    self.config.reference_config.reference.is_some()
+                        && self.config.spectrum_calibration.scaling.is_none(),
+                    Button::new("Set Reference as Calibration"),
+                );
+                if set_calibration_button.clicked() {
+                    self.config.spectrum_calibration.scaling = Some(
+                        self.spectrum
+                            .row(3)
+                            .iter()
+                            .enumerate()
+                            .map(|(i, v)| {
+                                let wavelength = self
+                                    .config
+                                    .spectrum_calibration
+                                    .get_wavelength_from_index(i);
+                                let ref_value = self
+                                    .config
+                                    .reference_config
+                                    .get_value_at_wavelength(wavelength)
+                                    .unwrap();
+                                ref_value / v
+                            })
+                            .collect(),
+                    )
+                };
+                let delete_calibration_button = ui.add_enabled(
+                    self.config.reference_config.reference.is_some()
+                        && self.config.spectrum_calibration.scaling.is_some(),
+                    Button::new("Delete Calibration"),
+                );
+                if delete_calibration_button.clicked() {
+                    self.config.spectrum_calibration.scaling = None;
+                };
             });
     }
 
