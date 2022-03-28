@@ -3,6 +3,7 @@ mod config;
 mod gui;
 mod serde;
 mod spectrum;
+mod tungsten_halogen;
 
 use crate::camera::{CameraEvent, CameraThread};
 use crate::config::SpectrometerConfig;

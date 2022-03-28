@@ -15,13 +15,14 @@ epi = "0.17.0"
 serde = { version = "1.0", features = ["derive"] }
 nokhwa = { version = "0.9.4", features = ["input-v4l", "input-msmf", "input-avfoundation", "output-threaded"] }
 rayon = "1.5"
-flume = "0.10.11"
+flume = "0.10.12"
 image = "0.24"
 confy = { version = "0.4.0", default-features = false, features = ["yaml_conf"]}
 nalgebra = "0.30.1"
 biquad = "0.4.2"
 csv = "1.1.6"
 winit = { version = "0.26.1", features = ["serde"]}
+physical_constants = "0.4.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 v4l = "0.12"

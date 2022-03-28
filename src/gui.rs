@@ -21,6 +21,7 @@ use std::any::Any;
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
 
+use crate::tungsten_halogen::reference_from_filament_temp;
 #[cfg(target_os = "linux")]
 use v4l::{
     control::{Description, Flags},
@@ -37,6 +38,7 @@ pub struct SpectrometerGui {
     spectrum: Spectrum,
     spectrum_buffer: Vec<SpectrumRgb>,
     zero_reference: Option<Spectrum>,
+    tungsten_filament_temp: u16,
     camera_config_tx: Sender<CameraEvent>,
     camera_config_change_pending: bool,
     spectrum_rx: Receiver<SpectrumRgb>,
@@ -63,6 +65,7 @@ impl SpectrometerGui {
             spectrum: Spectrum::zeros(spectrum_width as usize),
             spectrum_buffer: Vec::new(),
             zero_reference: None,
+            tungsten_filament_temp: 2800,
             camera_config_tx,
             camera_config_change_pending: false,
             spectrum_rx,
@@ -808,6 +811,17 @@ impl SpectrometerGui {
                 if delete_button.clicked() {
                     self.config.reference_config.reference = None;
                 }
+                ui.separator();
+                let generate_reference_button =
+                    ui.button("Generate Reference From Tungsten Temperature");
+                if generate_reference_button.clicked() {
+                    self.config.reference_config.reference =
+                        Some(reference_from_filament_temp(self.tungsten_filament_temp))
+                }
+                ui.add(
+                    Slider::new(&mut self.tungsten_filament_temp, 1000..=3500)
+                        .text("Tungsten Temperature"),
+                );
                 ui.separator();
                 let export_button = ui.add(Button::new("Export Spectrum"));
                 if export_button.clicked() {
