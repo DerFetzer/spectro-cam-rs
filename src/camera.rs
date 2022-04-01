@@ -66,11 +66,12 @@ impl CameraThread {
         let controls: Arc<Mutex<Option<Vec<CameraControl>>>> = Arc::new(Mutex::new(None));
         let mut join_handle = None;
         loop {
-            let config = Arc::clone(&config);
-            let controls = Arc::clone(&controls);
             if let Ok(event) = self.config_rx.try_recv() {
                 match event {
                     CameraEvent::StartStream { id, format } => {
+                        let config = Arc::clone(&config);
+                        let controls = Arc::clone(&controls);
+
                         let frame_tx = self.frame_tx.clone();
                         let window_tx = self.window_tx.clone();
                         let result_tx = self.result_tx.clone();
