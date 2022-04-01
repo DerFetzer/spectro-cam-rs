@@ -79,11 +79,15 @@ impl SpectrometerGui {
     fn query_cameras(&mut self) {
         let default_camera_formats = CameraInfo::get_default_camera_formats();
 
-        for i in query().unwrap_or_default().iter().map(|c| c.index()) {
-            for format in default_camera_formats.iter() {
+        for i in query()
+            .unwrap_or_default()
+            .iter()
+            .map(nokhwa::CameraInfo::index)
+        {
+            for format in &default_camera_formats {
                 if let Ok(cam) = Camera::new(i, Some(*format)).borrow_mut() {
                     let mut formats = cam.compatible_camera_formats().unwrap_or_default();
-                    formats.sort_by_key(|cf| cf.width());
+                    formats.sort_by_key(nokhwa::CameraFormat::width);
                     self.camera_info.insert(
                         i,
                         CameraInfo {
@@ -112,7 +116,7 @@ impl SpectrometerGui {
             if let Ok(cam) = Camera::new(self.config.camera_id, Some(format)) {
                 let raw_controls = Self::get_raw_controls(&cam);
 
-                self.camera_controls = Self::get_controls_from_raw_controls(cam, &raw_controls);
+                self.camera_controls = Self::get_controls_from_raw_controls(&cam, &raw_controls);
                 self.camera_raw_controls = raw_controls;
                 break;
             }
@@ -143,7 +147,7 @@ impl SpectrometerGui {
 
     #[cfg(target_os = "linux")]
     fn get_controls_from_raw_controls(
-        cam: Camera,
+        cam: &Camera,
         raw_controls: &[Box<dyn Any>],
     ) -> Vec<CameraControl> {
         raw_controls
@@ -206,7 +210,7 @@ impl SpectrometerGui {
         if self.config.spectrum_calibration.linearize != Linearize::Off {
             spectrum
                 .iter_mut()
-                .for_each(|v| *v = self.config.spectrum_calibration.linearize.linearize(*v))
+                .for_each(|v| *v = self.config.spectrum_calibration.linearize.linearize(*v));
         }
 
         self.spectrum_buffer.insert(0, spectrum);
@@ -351,7 +355,7 @@ impl SpectrometerGui {
                     let line = self.config.reference_config.to_line();
 
                     if let Some(reference) = line {
-                        plot_ui.line(reference.color(Color32::KHAKI).name("reference"))
+                        plot_ui.line(reference.color(Color32::KHAKI).name("reference"));
                     }
 
                     if self.config.view_config.show_calibration_window {
@@ -396,7 +400,7 @@ impl SpectrometerGui {
                         window_rect,
                         Rounding::none(),
                         Stroke::new(2., Color32::GOLD),
-                    )
+                    );
                 });
                 ui.separator();
 
@@ -548,7 +552,7 @@ impl SpectrometerGui {
                         // Clear buffer if value changed
                         if changed {
                             self.spectrum_buffer.clear()
-                        }
+                        };
                     });
                 ui.add(
                     Slider::new(&mut self.config.spectrum_calibration.gain_r, 0.0..=10.)
@@ -615,7 +619,7 @@ impl SpectrometerGui {
                                 ref_value / v
                             })
                             .collect(),
-                    )
+                    );
                 };
                 let delete_calibration_button = ui.add_enabled(
                     self.config.reference_config.reference.is_some()
@@ -816,7 +820,7 @@ impl SpectrometerGui {
                     ui.button("Generate Reference From Tungsten Temperature");
                 if generate_reference_button.clicked() {
                     self.config.reference_config.reference =
-                        Some(reference_from_filament_temp(self.tungsten_filament_temp))
+                        Some(reference_from_filament_temp(self.tungsten_filament_temp));
                 }
                 ui.add(
                     Slider::new(&mut self.tungsten_filament_temp, 1000..=3500)
@@ -860,7 +864,7 @@ impl SpectrometerGui {
                     ))
                     .show_ui(ui, |ui| {
                         if !self.running {
-                            for (i, ci) in self.camera_info.iter() {
+                            for (i, ci) in &self.camera_info {
                                 ui.selectable_value(
                                     &mut self.config.camera_id,
                                     *i,
@@ -874,7 +878,7 @@ impl SpectrometerGui {
                     .show_ui(ui, |ui| {
                         if !self.running {
                             if let Some(ci) = self.camera_info.get(&self.config.camera_id) {
-                                for cf in ci.formats.iter() {
+                                for cf in &ci.formats {
                                     ui.selectable_value(
                                         &mut self.config.camera_format,
                                         *cf,

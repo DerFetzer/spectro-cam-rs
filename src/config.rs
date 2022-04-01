@@ -184,8 +184,7 @@ impl GainPresets {
         match self {
             GainPresets::Unity => (1., 1., 1.),
             GainPresets::Rec601 => (0.299, 0.587, 0.114),
-            GainPresets::Rec709 => (0.2126, 0.7152, 0.0722),
-            GainPresets::SRgb => (0.2126, 0.7152, 0.0722),
+            GainPresets::Rec709 | GainPresets::SRgb => (0.2126, 0.7152, 0.0722),
         }
     }
 }

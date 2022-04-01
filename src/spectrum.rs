@@ -57,7 +57,7 @@ impl SpectrumCalculator {
 
                 self.spectrum_tx.send(spectrum).unwrap();
             }
-            std::thread::sleep(Duration::from_millis(1))
+            std::thread::sleep(Duration::from_millis(1));
         }
     }
 }

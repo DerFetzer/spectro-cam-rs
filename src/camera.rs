@@ -125,7 +125,7 @@ impl CameraThread {
                                 }
                                 // Check for new controls
                                 if let Some(controls) = controls.lock().unwrap().take() {
-                                    for control in controls.iter() {
+                                    for control in &controls {
                                         Self::set_control(&mut camera, control);
                                     }
                                 }
@@ -152,7 +152,7 @@ impl CameraThread {
                                 if let Some(cfg) = &inner_config {
                                     // Flip
                                     if cfg.flip {
-                                        frame = DynamicImage::ImageRgb8(frame).fliph().into_rgb8()
+                                        frame = DynamicImage::ImageRgb8(frame).fliph().into_rgb8();
                                     }
                                     // Extract window
                                     let window = frame
