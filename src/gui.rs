@@ -19,7 +19,7 @@ use rayon::prelude::*;
 use spectro_cam_rs::{ThreadId, ThreadResult};
 use std::any::Any;
 use std::borrow::BorrowMut;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use crate::tungsten_halogen::reference_from_filament_temp;
 #[cfg(target_os = "linux")]
@@ -36,7 +36,7 @@ pub struct SpectrometerGui {
     camera_controls: Vec<CameraControl>,
     webcam_texture_id: TextureId,
     spectrum: Spectrum,
-    spectrum_buffer: Vec<SpectrumRgb>,
+    spectrum_buffer: VecDeque<SpectrumRgb>,
     zero_reference: Option<Spectrum>,
     tungsten_filament_temp: u16,
     camera_config_tx: Sender<CameraEvent>,
@@ -63,7 +63,7 @@ impl SpectrometerGui {
             camera_controls: Default::default(),
             webcam_texture_id,
             spectrum: Spectrum::zeros(spectrum_width as usize),
-            spectrum_buffer: Vec::new(),
+            spectrum_buffer: VecDeque::with_capacity(100),
             zero_reference: None,
             tungsten_filament_temp: 2800,
             camera_config_tx,
@@ -213,7 +213,7 @@ impl SpectrometerGui {
                 .for_each(|v| *v = self.config.spectrum_calibration.linearize.linearize(*v));
         }
 
-        self.spectrum_buffer.insert(0, spectrum);
+        self.spectrum_buffer.push_front(spectrum);
         self.spectrum_buffer
             .truncate(self.config.postprocessing_config.spectrum_buffer_size);
 
