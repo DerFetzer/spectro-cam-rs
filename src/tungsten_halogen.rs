@@ -22,6 +22,8 @@ pub fn reference_from_filament_temp(filament_temp: u16) -> Vec<ReferencePoint> {
     ref_points
 }
 
+/// From: <https://doi.org/10.1364/AO.49.000880>
+///
 fn spectral_irradiance(wavelength: f64, filament_temp: f64) -> Option<f64> {
     let wavelength_m = wavelength * 10.0f64.powi(-9);
     emissivity(wavelength, filament_temp).map(|e| {
@@ -30,6 +32,8 @@ fn spectral_irradiance(wavelength: f64, filament_temp: f64) -> Option<f64> {
     })
 }
 
+/// From: <https://doi.org/10.1364/AO.23.000975>
+///
 fn emissivity(wavelength: f64, filament_temp: f64) -> Option<f64> {
     let filament_temp = filament_temp / 1000.;
 
@@ -55,4 +59,19 @@ fn emissivity(wavelength: f64, filament_temp: f64) -> Option<f64> {
                 * (wavelength / 1000. - l0)
             + (c0 + c1 * (filament_temp - T0)) * (wavelength / 1000. - l0).powi(2),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tungsten() {
+        let r = reference_from_filament_temp(2500);
+
+        assert_eq!(r.iter().map(|rp| rp.value).reduce(f32::max), Some(1.));
+        assert_eq!(r.len(), 2000 - 340);
+        assert_eq!(r.first().unwrap().wavelength, 340.);
+        assert_eq!(r.last().unwrap().wavelength, 2000. - 1.);
+    }
 }

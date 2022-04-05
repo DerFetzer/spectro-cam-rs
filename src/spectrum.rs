@@ -3,7 +3,6 @@ use image::{ImageBuffer, Pixel, Rgb};
 use nalgebra::{Dynamic, OMatrix, U3, U4};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 
 pub type SpectrumRgb = OMatrix<f32, U3, Dynamic>;
 pub type Spectrum = OMatrix<f32, U4, Dynamic>;
@@ -35,7 +34,7 @@ impl SpectrumCalculator {
 
     pub fn run(&mut self) -> ! {
         loop {
-            if let Ok(window) = self.window_rx.try_recv() {
+            if let Ok(window) = self.window_rx.recv() {
                 let columns = window.width();
                 let rows = window.height();
                 let max_value = rows * u8::MAX as u32 * 3;
@@ -57,7 +56,6 @@ impl SpectrumCalculator {
 
                 self.spectrum_tx.send(spectrum).unwrap();
             }
-            std::thread::sleep(Duration::from_millis(1));
         }
     }
 }

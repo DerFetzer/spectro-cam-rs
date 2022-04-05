@@ -91,7 +91,7 @@ impl ReferenceConfig {
             sorted.sort_by(|a, b| a.wavelength.partial_cmp(&b.wavelength).unwrap());
             let mut value = None;
             for (rp1, rp2) in sorted.iter().zip(sorted[1..].iter()) {
-                if wavelength >= rp1.wavelength && wavelength < rp2.wavelength {
+                if wavelength >= rp1.wavelength && wavelength <= rp2.wavelength {
                     let a = (rp1.value - rp2.value) / (rp1.wavelength - rp2.wavelength);
                     value = Some((a * wavelength + rp1.value - a * rp1.wavelength) * self.scale);
                     break;
@@ -163,6 +163,16 @@ impl Default for ImageConfig {
             },
             flip: true,
         }
+    }
+}
+
+impl ImageConfig {
+    pub fn clamp(&mut self, width: f32, height: f32) {
+        self.window.offset = self.window.offset.min(Vec2::new(width, height));
+        self.window.size = self
+            .window
+            .size
+            .min(Vec2::new(width, height) - self.window.offset);
     }
 }
 
@@ -322,5 +332,60 @@ mod tests {
         assert_relative_eq!(s.get_wavelength_from_index(51), 438.2);
         assert_relative_eq!(s.get_wavelength_from_index(100), 546.);
         assert_relative_eq!(s.get_wavelength_from_index(101), 548.2);
+    }
+
+    #[test]
+    fn linearize() {
+        for l in [
+            Linearize::Off,
+            Linearize::Rec709,
+            Linearize::Rec601,
+            Linearize::SRgb,
+        ] {
+            assert_eq!(l.linearize(0.), 0.);
+            if l == Linearize::Off {
+                assert_eq!(l.linearize(0.5), 0.5);
+            } else {
+                assert!(l.linearize(0.5) < 0.5);
+            }
+            assert_eq!(l.linearize(1.), 1.);
+        }
+    }
+
+    #[test]
+    fn reference_config() {
+        let rc = ReferenceConfig {
+            reference: Some(vec![
+                ReferencePoint {
+                    wavelength: 100.,
+                    value: 1.,
+                },
+                ReferencePoint {
+                    wavelength: 200.,
+                    value: 2.,
+                },
+            ]),
+            scale: 1.0,
+        };
+
+        assert_eq!(rc.get_value_at_wavelength(100.), Some(1.0));
+        assert_eq!(rc.get_value_at_wavelength(150.), Some(1.5));
+        assert_eq!(rc.get_value_at_wavelength(200.), Some(2.0));
+    }
+
+    #[test]
+    fn image_config() {
+        let mut ic = ImageConfig {
+            window: SpectrumWindow {
+                offset: Vec2::new(100., 50.),
+                size: Vec2::new(1000., 500.),
+            },
+            flip: false,
+        };
+
+        ic.clamp(500., 400.);
+
+        assert_eq!(ic.window.offset, Vec2::new(100., 50.));
+        assert_eq!(ic.window.size, Vec2::new(400., 350.));
     }
 }

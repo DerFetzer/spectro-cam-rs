@@ -3,6 +3,7 @@ use crate::config::{
     CameraControl, GainPresets, Linearize, SpectrometerConfig, SpectrumCalibration,
 };
 use crate::spectrum::{Spectrum, SpectrumExportPoint, SpectrumRgb};
+use crate::tungsten_halogen::reference_from_filament_temp;
 use crate::CameraEvent;
 use biquad::{
     Biquad, Coefficients, DirectForm2Transposed, Hertz, ToHertz, Type, Q_BUTTERWORTH_F32,
@@ -21,7 +22,6 @@ use std::any::Any;
 use std::borrow::BorrowMut;
 use std::collections::{HashMap, VecDeque};
 
-use crate::tungsten_halogen::reference_from_filament_temp;
 #[cfg(target_os = "linux")]
 use v4l::{
     control::{Description, Flags},
@@ -894,6 +894,12 @@ impl SpectrometerGui {
                 let connect_button = ui.button(if self.running { "Stop..." } else { "Start..." });
                 if connect_button.clicked() {
                     if self.config.camera_format.is_some() {
+                        // Clamp window values to camera-resolution
+                        let camera_format = self.config.camera_format.unwrap();
+                        self.config
+                            .image_config
+                            .clamp(camera_format.width() as f32, camera_format.height() as f32);
+
                         self.running = !self.running;
                         if self.running {
                             self.start_stream();
