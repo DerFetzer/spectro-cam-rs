@@ -54,7 +54,6 @@ impl SpectrometerGui {
         config: SpectrometerConfig,
         result_rx: Receiver<ThreadResult>,
     ) -> Self {
-        let spectrum_width = config.camera_format.width();
         let mut gui = Self {
             config,
             running: false,
@@ -62,7 +61,7 @@ impl SpectrometerGui {
             camera_raw_controls: Default::default(),
             camera_controls: Default::default(),
             webcam_texture_id,
-            spectrum: Spectrum::zeros(spectrum_width as usize),
+            spectrum: Spectrum::zeros(0),
             spectrum_buffer: VecDeque::with_capacity(100),
             zero_reference: None,
             tungsten_filament_temp: 2800,
@@ -126,7 +125,7 @@ impl SpectrometerGui {
         self.camera_config_tx
             .send(CameraEvent::StartStream {
                 id: self.config.camera_id,
-                format: self.config.camera_format,
+                format: self.config.camera_format.unwrap(),
             })
             .unwrap();
     }
@@ -378,8 +377,8 @@ impl SpectrometerGui {
                 ui.separator();
 
                 let image_size = egui::Vec2::new(
-                    self.config.camera_format.width() as f32,
-                    self.config.camera_format.height() as f32,
+                    self.config.camera_format.unwrap().width() as f32,
+                    self.config.camera_format.unwrap().height() as f32,
                 ) * self.config.view_config.image_scale;
                 let image_response = ui.image(self.webcam_texture_id, image_size);
 
@@ -389,8 +388,8 @@ impl SpectrometerGui {
                     let image_rect = image_response.rect;
                     let image_origin = image_rect.min;
                     let scale = Vec2::new(
-                        image_rect.width() / self.config.camera_format.width() as f32,
-                        image_rect.height() / self.config.camera_format.height() as f32,
+                        image_rect.width() / self.config.camera_format.unwrap().width() as f32,
+                        image_rect.height() / self.config.camera_format.unwrap().height() as f32,
                     );
                     let window_rect = Rect::from_min_size(
                         image_origin + self.config.image_config.window.offset * scale,
@@ -412,7 +411,7 @@ impl SpectrometerGui {
                         .add(
                             Slider::new(
                                 &mut self.config.image_config.window.offset.x,
-                                1.0..=(self.config.camera_format.width() as f32 - 1.),
+                                1.0..=(self.config.camera_format.unwrap().width() as f32 - 1.),
                             )
                             .step_by(1.)
                             .text("Offset X"),
@@ -422,7 +421,7 @@ impl SpectrometerGui {
                         .add(
                             Slider::new(
                                 &mut self.config.image_config.window.offset.y,
-                                1.0..=(self.config.camera_format.height() as f32 - 1.),
+                                1.0..=(self.config.camera_format.unwrap().height() as f32 - 1.),
                             )
                             .step_by(1.)
                             .text("Offset Y"),
@@ -433,7 +432,7 @@ impl SpectrometerGui {
                         .add(
                             Slider::new(
                                 &mut self.config.image_config.window.size.x,
-                                1.0..=(self.config.camera_format.width() as f32
+                                1.0..=(self.config.camera_format.unwrap().width() as f32
                                     - self.config.image_config.window.offset.x
                                     - 1.),
                             )
@@ -445,7 +444,7 @@ impl SpectrometerGui {
                         .add(
                             Slider::new(
                                 &mut self.config.image_config.window.size.y,
-                                1.0..=(self.config.camera_format.height() as f32
+                                1.0..=(self.config.camera_format.unwrap().height() as f32
                                     - self.config.image_config.window.offset.y
                                     - 1.),
                             )
@@ -874,14 +873,17 @@ impl SpectrometerGui {
                         }
                     });
                 ComboBox::from_id_source("cb_camera_format")
-                    .selected_text(format!("{}", self.config.camera_format))
+                    .selected_text(match self.config.camera_format {
+                        None => "".to_string(),
+                        Some(camera_format) => format!("{}", camera_format),
+                    })
                     .show_ui(ui, |ui| {
                         if !self.running {
                             if let Some(ci) = self.camera_info.get(&self.config.camera_id) {
                                 for cf in &ci.formats {
                                     ui.selectable_value(
                                         &mut self.config.camera_format,
-                                        *cf,
+                                        Some(*cf),
                                         format!("{}", cf),
                                     );
                                 }
@@ -891,12 +893,19 @@ impl SpectrometerGui {
 
                 let connect_button = ui.button(if self.running { "Stop..." } else { "Start..." });
                 if connect_button.clicked() {
-                    self.running = !self.running;
-                    if self.running {
-                        self.start_stream();
+                    if self.config.camera_format.is_some() {
+                        self.running = !self.running;
+                        if self.running {
+                            self.start_stream();
+                        } else {
+                            self.stop_stream();
+                        };
                     } else {
-                        self.stop_stream();
-                    };
+                        self.last_error = Some(ThreadResult {
+                            id: ThreadId::Main,
+                            result: Err("Choose a camera format!".to_string()),
+                        });
+                    }
                 };
             });
         });

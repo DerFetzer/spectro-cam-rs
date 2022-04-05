@@ -2,8 +2,9 @@ use crate::serde::CameraFormatDef;
 use egui::plot::{Line, Value, Values};
 use egui::Vec2;
 use glium::glutin::dpi::PhysicalSize;
-use nokhwa::{CameraFormat, FrameFormat, Resolution};
+use nokhwa::CameraFormat;
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use std::fmt::{Display, Formatter};
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone, Copy)]
@@ -275,33 +276,18 @@ impl Default for PostprocessingConfig {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde_as]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct SpectrometerConfig {
     pub camera_id: usize,
-    #[serde(with = "CameraFormatDef")]
-    pub camera_format: CameraFormat,
+    #[serde_as(as = "Option<CameraFormatDef>")]
+    pub camera_format: Option<CameraFormat>,
     pub image_config: ImageConfig,
     pub spectrum_calibration: SpectrumCalibration,
     pub postprocessing_config: PostprocessingConfig,
     pub view_config: ViewConfig,
     pub reference_config: ReferenceConfig,
     pub import_export_config: ImportExportConfig,
-}
-
-impl Default for SpectrometerConfig {
-    fn default() -> Self {
-        let camera_format = CameraFormat::new(Resolution::new(1920, 1080), FrameFormat::MJPEG, 30);
-        Self {
-            camera_id: 0,
-            camera_format,
-            image_config: Default::default(),
-            spectrum_calibration: Default::default(),
-            postprocessing_config: Default::default(),
-            view_config: Default::default(),
-            reference_config: Default::default(),
-            import_export_config: Default::default(),
-        }
-    }
 }
 
 #[cfg(test)]
