@@ -4,7 +4,6 @@ use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
 use nokhwa::{CameraFormat, FrameFormat, Resolution, ThreadedCamera};
 use spectro_cam_rs::{ThreadId, ThreadResult};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 #[cfg(target_os = "linux")]
 use v4l::Control;
@@ -66,7 +65,7 @@ impl CameraThread {
         let controls: Arc<Mutex<Option<Vec<CameraControl>>>> = Arc::new(Mutex::new(None));
         let mut join_handle = None;
         loop {
-            if let Ok(event) = self.config_rx.try_recv() {
+            if let Ok(event) = self.config_rx.recv() {
                 match event {
                     CameraEvent::StartStream { id, format } => {
                         let config = Arc::clone(&config);
@@ -170,7 +169,6 @@ impl CameraThread {
                                 if frame_tx.send(frame).is_err() {
                                     return;
                                 };
-                                std::thread::sleep(Duration::from_millis(1));
                             }
                         });
                         join_handle = Some(hdl);
@@ -190,7 +188,6 @@ impl CameraThread {
                     }
                 }
             }
-            std::thread::sleep(Duration::from_millis(1));
         }
     }
 
