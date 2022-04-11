@@ -48,20 +48,28 @@ impl Linearize {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct ImportExportConfig {
     pub path: String,
 }
 
+impl Default for ImportExportConfig {
+    fn default() -> Self {
+        Self {
+            path: "spectrum.csv".to_string(),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy, Default)]
-pub struct ReferencePoint {
+pub struct SpectrumPoint {
     pub wavelength: f32,
     pub value: f32,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct ReferenceConfig {
-    pub reference: Option<Vec<ReferencePoint>>,
+    pub reference: Option<Vec<SpectrumPoint>>,
     pub scale: f32,
 }
 
@@ -123,6 +131,10 @@ pub struct ViewConfig {
     pub draw_spectrum_g: bool,
     pub draw_spectrum_b: bool,
     pub draw_spectrum_combined: bool,
+    pub draw_peaks: bool,
+    pub draw_dips: bool,
+    pub peaks_dips_unique_window: f32,
+    pub peaks_dips_find_window: usize,
     pub show_camera_window: bool,
     pub show_calibration_window: bool,
     pub show_postprocessing_window: bool,
@@ -139,6 +151,10 @@ impl Default for ViewConfig {
             draw_spectrum_g: true,
             draw_spectrum_b: true,
             draw_spectrum_combined: true,
+            draw_peaks: true,
+            draw_dips: true,
+            peaks_dips_unique_window: 50.,
+            peaks_dips_find_window: 5,
             show_camera_window: true,
             show_calibration_window: false,
             show_postprocessing_window: false,
@@ -356,11 +372,11 @@ mod tests {
     fn reference_config() {
         let rc = ReferenceConfig {
             reference: Some(vec![
-                ReferencePoint {
+                SpectrumPoint {
                     wavelength: 100.,
                     value: 1.,
                 },
-                ReferencePoint {
+                SpectrumPoint {
                     wavelength: 200.,
                     value: 2.,
                 },

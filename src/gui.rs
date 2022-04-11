@@ -1,6 +1,6 @@
 use crate::camera::CameraInfo;
 use crate::config::{
-    CameraControl, GainPresets, Linearize, SpectrometerConfig, SpectrumCalibration,
+    CameraControl, GainPresets, Linearize, SpectrometerConfig, SpectrumCalibration, SpectrumPoint,
 };
 use crate::spectrum::{Spectrum, SpectrumExportPoint, SpectrumRgb};
 use crate::tungsten_halogen::reference_from_filament_temp;
@@ -8,7 +8,7 @@ use crate::CameraEvent;
 use biquad::{
     Biquad, Coefficients, DirectForm2Transposed, Hertz, ToHertz, Type, Q_BUTTERWORTH_F32,
 };
-use egui::plot::{Legend, Line, Plot, VLine, Value, Values};
+use egui::plot::{Legend, Line, MarkerShape, Plot, Points, Text, VLine, Value, Values};
 use egui::{
     Button, Color32, ComboBox, Context, Rect, RichText, Rounding, Sense, Slider, Stroke, TextureId,
     Vec2,
@@ -297,6 +297,102 @@ impl SpectrometerGui {
         })
     }
 
+    fn spectrum_to_peaks_and_dips(&self, peaks: bool) -> (Points, Vec<Text>) {
+        let mut peaks_dips = Vec::new();
+
+        let spectrum: Vec<_> = self.spectrum.row(3).iter().cloned().collect();
+
+        let windows_size = self.config.view_config.peaks_dips_find_window * 2 + 1;
+        let mid_index = (windows_size - 1) / 2;
+
+        let max_spectrum_value = spectrum
+            .iter()
+            .cloned()
+            .reduce(f32::max)
+            .unwrap_or_default();
+
+        for (i, win) in spectrum.as_slice().windows(windows_size).enumerate() {
+            let (lower, upper) = win.split_at(mid_index);
+
+            if lower.iter().chain(upper[1..].iter()).all(|&v| {
+                if peaks {
+                    v < win[mid_index]
+                } else {
+                    v > win[mid_index]
+                }
+            }) {
+                peaks_dips.push(SpectrumPoint {
+                    wavelength: self
+                        .config
+                        .spectrum_calibration
+                        .get_wavelength_from_index(i + mid_index),
+                    value: win[mid_index],
+                })
+            }
+        }
+
+        let mut filtered_peaks_dips = Vec::new();
+        let mut peak_dip_labels = Vec::new();
+
+        let window = self.config.view_config.peaks_dips_unique_window;
+
+        for peak_dip in &peaks_dips {
+            if peak_dip.value
+                == peaks_dips
+                    .iter()
+                    .filter(|sp| {
+                        sp.wavelength > peak_dip.wavelength - window / 2.
+                            && sp.wavelength < peak_dip.wavelength + window / 2.
+                    })
+                    .map(|sp| sp.value)
+                    .reduce(if peaks { f32::max } else { f32::min })
+                    .unwrap()
+            {
+                filtered_peaks_dips.push(peak_dip);
+                peak_dip_labels.push(
+                    Text::new(
+                        Value::new(
+                            peak_dip.wavelength,
+                            if peaks {
+                                peak_dip.value + (max_spectrum_value * 0.01)
+                            } else {
+                                peak_dip.value - (max_spectrum_value * 0.01)
+                            },
+                        ),
+                        format!("{}", peak_dip.wavelength as u32),
+                    )
+                    .color(if peaks {
+                        Color32::LIGHT_RED
+                    } else {
+                        Color32::LIGHT_BLUE
+                    }),
+                );
+            }
+        }
+
+        (
+            Points::new(Values::from_values_iter(
+                filtered_peaks_dips
+                    .into_iter()
+                    .map(|sp| Value::new(sp.wavelength, sp.value)),
+            ))
+            .name("Peaks")
+            .shape(if peaks {
+                MarkerShape::Up
+            } else {
+                MarkerShape::Down
+            })
+            .color(if peaks {
+                Color32::LIGHT_RED
+            } else {
+                Color32::LIGHT_BLUE
+            })
+            .filled(true)
+            .radius(5.),
+            peak_dip_labels,
+        )
+    }
+
     fn spectrum_to_point_vec(
         spectrum: &Spectrum,
         spectrum_calibration: &SpectrumCalibration,
@@ -349,6 +445,25 @@ impl SpectrometerGui {
                                 .color(Color32::LIGHT_GRAY)
                                 .name("sum"),
                         );
+                    }
+
+                    if self.config.view_config.draw_peaks || self.config.view_config.draw_dips {
+                        if self.config.view_config.draw_peaks {
+                            let (peaks, peak_labels) = self.spectrum_to_peaks_and_dips(true);
+
+                            plot_ui.points(peaks);
+                            for peak_label in peak_labels {
+                                plot_ui.text(peak_label);
+                            }
+                        }
+                        if self.config.view_config.draw_dips {
+                            let (dips, dip_labels) = self.spectrum_to_peaks_and_dips(false);
+
+                            plot_ui.points(dips);
+                            for dip_label in dip_labels {
+                                plot_ui.text(dip_label);
+                            }
+                        }
                     }
 
                     let line = self.config.reference_config.to_line();
@@ -681,6 +796,22 @@ impl SpectrometerGui {
                         .logarithmic(true)
                         .text("Reference Scale"),
                 );
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.config.view_config.draw_peaks, "Show Peaks");
+                    ui.checkbox(&mut self.config.view_config.draw_dips, "Show Dips");
+                });
+                ui.add(
+                    Slider::new(&mut self.config.view_config.peaks_dips_find_window, 1..=200)
+                        .text("Peaks/Dips Find Window"),
+                );
+                ui.add(
+                    Slider::new(
+                        &mut self.config.view_config.peaks_dips_unique_window,
+                        1.0..=200.,
+                    )
+                    .text("Peaks/Dips Filter Window"),
+                );
             });
     }
 
@@ -828,15 +959,24 @@ impl SpectrometerGui {
                 ui.separator();
                 let export_button = ui.add(Button::new("Export Spectrum"));
                 if export_button.clicked() {
-                    let mut writer =
-                        csv::Writer::from_path(&self.config.import_export_config.path).unwrap();
-                    for p in Self::spectrum_to_point_vec(
-                        &self.spectrum,
-                        &self.config.spectrum_calibration,
-                    ) {
-                        writer.serialize(p).unwrap();
+                    let writer = csv::Writer::from_path(&self.config.import_export_config.path);
+                    match writer {
+                        Ok(mut writer) => {
+                            for p in Self::spectrum_to_point_vec(
+                                &self.spectrum,
+                                &self.config.spectrum_calibration,
+                            ) {
+                                writer.serialize(p).unwrap();
+                            }
+                            writer.flush().unwrap();
+                        }
+                        Err(e) => {
+                            self.last_error = Some(ThreadResult {
+                                id: ThreadId::Main,
+                                result: Err(e.to_string()),
+                            });
+                        }
                     }
-                    writer.flush().unwrap();
                 }
             });
     }

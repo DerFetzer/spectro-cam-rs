@@ -1,14 +1,14 @@
-use crate::config::ReferencePoint;
+use crate::config::SpectrumPoint;
 
 const T0: f64 = 2.200;
 const C: f64 = physical_constants::SPEED_OF_LIGHT_IN_VACUUM;
 const H: f64 = physical_constants::PLANCK_CONSTANT;
 const K: f64 = physical_constants::BOLTZMANN_CONSTANT;
 
-pub fn reference_from_filament_temp(filament_temp: u16) -> Vec<ReferencePoint> {
+pub fn reference_from_filament_temp(filament_temp: u16) -> Vec<SpectrumPoint> {
     let mut ref_points = (340..2000)
         .into_iter()
-        .map(|wavelength| ReferencePoint {
+        .map(|wavelength| SpectrumPoint {
             wavelength: wavelength as f32,
             value: spectral_irradiance(wavelength as f64, filament_temp as f64).unwrap() as f32,
         })
