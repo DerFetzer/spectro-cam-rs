@@ -1,14 +1,9 @@
 use crate::camera::CameraInfo;
-use crate::config::{
-    CameraControl, GainPresets, Linearize, SpectrometerConfig, SpectrumCalibration, SpectrumPoint,
-};
-use crate::spectrum::{Spectrum, SpectrumExportPoint, SpectrumRgb};
+use crate::config::{CameraControl, GainPresets, Linearize, SpectrometerConfig};
+use crate::spectrum::{SpectrumContainer, SpectrumRgb};
 use crate::tungsten_halogen::reference_from_filament_temp;
 use crate::CameraEvent;
-use biquad::{
-    Biquad, Coefficients, DirectForm2Transposed, Hertz, ToHertz, Type, Q_BUTTERWORTH_F32,
-};
-use egui::plot::{Legend, Line, MarkerShape, Plot, Points, Text, VLine, Value, Values};
+use egui::plot::{Legend, Plot, VLine};
 use egui::{
     Button, Color32, ComboBox, Context, Rect, RichText, Rounding, Sense, Slider, Stroke, TextureId,
     Vec2,
@@ -16,11 +11,10 @@ use egui::{
 use flume::{Receiver, Sender};
 use glium::glutin::dpi::PhysicalSize;
 use nokhwa::{query, Camera};
-use rayon::prelude::*;
 use spectro_cam_rs::{ThreadId, ThreadResult};
 use std::any::Any;
 use std::borrow::BorrowMut;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 #[cfg(target_os = "linux")]
 use v4l::{
@@ -35,13 +29,10 @@ pub struct SpectrometerGui {
     camera_raw_controls: Vec<Box<dyn Any>>,
     camera_controls: Vec<CameraControl>,
     webcam_texture_id: TextureId,
-    spectrum: Spectrum,
-    spectrum_buffer: VecDeque<SpectrumRgb>,
-    zero_reference: Option<Spectrum>,
+    spectrum_container: SpectrumContainer,
     tungsten_filament_temp: u16,
     camera_config_tx: Sender<CameraEvent>,
     camera_config_change_pending: bool,
-    spectrum_rx: Receiver<SpectrumRgb>,
     result_rx: Receiver<ThreadResult>,
     last_error: Option<ThreadResult>,
 }
@@ -61,13 +52,10 @@ impl SpectrometerGui {
             camera_raw_controls: Default::default(),
             camera_controls: Default::default(),
             webcam_texture_id,
-            spectrum: Spectrum::zeros(0),
-            spectrum_buffer: VecDeque::with_capacity(100),
-            zero_reference: None,
+            spectrum_container: SpectrumContainer::new(spectrum_rx),
             tungsten_filament_temp: 2800,
             camera_config_tx,
             camera_config_change_pending: false,
-            spectrum_rx,
             result_rx,
             last_error: None,
         };
@@ -120,7 +108,7 @@ impl SpectrometerGui {
                 break;
             }
         }
-        self.spectrum_buffer.clear();
+        self.spectrum_container.clear_buffer();
         self.send_config();
         self.camera_config_tx
             .send(CameraEvent::StartStream {
@@ -195,224 +183,6 @@ impl SpectrometerGui {
         self.camera_config_tx.send(CameraEvent::StopStream).unwrap();
     }
 
-    fn update_spectrum(&mut self, mut spectrum: SpectrumRgb) {
-        let ncols = spectrum.ncols();
-
-        // Clear buffer and zero reference on dimension change
-        if let Some(s) = self.spectrum_buffer.get(0) {
-            if s.ncols() != ncols {
-                self.spectrum_buffer.clear();
-                self.zero_reference = None;
-            }
-        }
-
-        if self.config.spectrum_calibration.linearize != Linearize::Off {
-            spectrum
-                .iter_mut()
-                .for_each(|v| *v = self.config.spectrum_calibration.linearize.linearize(*v));
-        }
-
-        self.spectrum_buffer.push_front(spectrum);
-        self.spectrum_buffer
-            .truncate(self.config.postprocessing_config.spectrum_buffer_size);
-
-        let mut combined_buffer = self
-            .spectrum_buffer
-            .par_iter()
-            .cloned()
-            .reduce(|| SpectrumRgb::from_element(ncols, 0.), |a, b| a + b)
-            / self.spectrum_buffer.len() as f32;
-
-        combined_buffer.set_row(
-            0,
-            &(combined_buffer.row(0) * self.config.spectrum_calibration.gain_r),
-        );
-        combined_buffer.set_row(
-            1,
-            &(combined_buffer.row(1) * self.config.spectrum_calibration.gain_g),
-        );
-        combined_buffer.set_row(
-            2,
-            &(combined_buffer.row(2) * self.config.spectrum_calibration.gain_b),
-        );
-
-        let mut current_spectrum = Spectrum::from_rows(&[
-            combined_buffer.row(0).clone_owned(),
-            combined_buffer.row(1).clone_owned(),
-            combined_buffer.row(2).clone_owned(),
-            if self.config.spectrum_calibration.scaling.is_some() {
-                let mut sum = combined_buffer.row_sum();
-                sum.iter_mut().enumerate().for_each(|(i, v)| {
-                    *v *= self
-                        .config
-                        .spectrum_calibration
-                        .get_scaling_factor_from_index(i);
-                });
-                sum
-            } else {
-                combined_buffer.row_sum()
-            },
-        ]);
-
-        if self.config.postprocessing_config.spectrum_filter_active {
-            let cutoff = self
-                .config
-                .postprocessing_config
-                .spectrum_filter_cutoff
-                .clamp(0.001, 1.);
-            let fs: Hertz<f32> = 2.0.hz();
-            let f0: Hertz<f32> = cutoff.hz();
-
-            let coeffs =
-                Coefficients::<f32>::from_params(Type::LowPass, fs, f0, Q_BUTTERWORTH_F32).unwrap();
-            for mut channel in current_spectrum.row_iter_mut() {
-                let mut biquad = DirectForm2Transposed::<f32>::new(coeffs);
-                for sample in channel.iter_mut() {
-                    *sample = biquad.run(*sample);
-                }
-                // Apply filter in reverse to compensate phase error
-                for sample in channel.iter_mut().rev() {
-                    *sample = biquad.run(*sample);
-                }
-            }
-        }
-
-        if let Some(zero_reference) = self.zero_reference.as_ref() {
-            current_spectrum -= zero_reference;
-        }
-
-        self.spectrum = current_spectrum;
-    }
-
-    fn spectrum_channel_to_line(&self, channel_index: usize) -> Line {
-        Line::new({
-            let calibration = &self.config.spectrum_calibration;
-            Values::from_values_iter(self.spectrum.row(channel_index).iter().enumerate().map(
-                |(i, p)| {
-                    let x = calibration.get_wavelength_from_index(i);
-                    let y = *p;
-                    Value::new(x, y)
-                },
-            ))
-        })
-    }
-
-    fn spectrum_to_peaks_and_dips(&self, peaks: bool) -> (Points, Vec<Text>) {
-        let mut peaks_dips = Vec::new();
-
-        let spectrum: Vec<_> = self.spectrum.row(3).iter().cloned().collect();
-
-        let windows_size = self.config.view_config.peaks_dips_find_window * 2 + 1;
-        let mid_index = (windows_size - 1) / 2;
-
-        let max_spectrum_value = spectrum
-            .iter()
-            .cloned()
-            .reduce(f32::max)
-            .unwrap_or_default();
-
-        for (i, win) in spectrum.as_slice().windows(windows_size).enumerate() {
-            let (lower, upper) = win.split_at(mid_index);
-
-            if lower.iter().chain(upper[1..].iter()).all(|&v| {
-                if peaks {
-                    v < win[mid_index]
-                } else {
-                    v > win[mid_index]
-                }
-            }) {
-                peaks_dips.push(SpectrumPoint {
-                    wavelength: self
-                        .config
-                        .spectrum_calibration
-                        .get_wavelength_from_index(i + mid_index),
-                    value: win[mid_index],
-                })
-            }
-        }
-
-        let mut filtered_peaks_dips = Vec::new();
-        let mut peak_dip_labels = Vec::new();
-
-        let window = self.config.view_config.peaks_dips_unique_window;
-
-        for peak_dip in &peaks_dips {
-            if peak_dip.value
-                == peaks_dips
-                    .iter()
-                    .filter(|sp| {
-                        sp.wavelength > peak_dip.wavelength - window / 2.
-                            && sp.wavelength < peak_dip.wavelength + window / 2.
-                    })
-                    .map(|sp| sp.value)
-                    .reduce(if peaks { f32::max } else { f32::min })
-                    .unwrap()
-            {
-                filtered_peaks_dips.push(peak_dip);
-                peak_dip_labels.push(
-                    Text::new(
-                        Value::new(
-                            peak_dip.wavelength,
-                            if peaks {
-                                peak_dip.value + (max_spectrum_value * 0.01)
-                            } else {
-                                peak_dip.value - (max_spectrum_value * 0.01)
-                            },
-                        ),
-                        format!("{}", peak_dip.wavelength as u32),
-                    )
-                    .color(if peaks {
-                        Color32::LIGHT_RED
-                    } else {
-                        Color32::LIGHT_BLUE
-                    }),
-                );
-            }
-        }
-
-        (
-            Points::new(Values::from_values_iter(
-                filtered_peaks_dips
-                    .into_iter()
-                    .map(|sp| Value::new(sp.wavelength, sp.value)),
-            ))
-            .name("Peaks")
-            .shape(if peaks {
-                MarkerShape::Up
-            } else {
-                MarkerShape::Down
-            })
-            .color(if peaks {
-                Color32::LIGHT_RED
-            } else {
-                Color32::LIGHT_BLUE
-            })
-            .filled(true)
-            .radius(5.),
-            peak_dip_labels,
-        )
-    }
-
-    fn spectrum_to_point_vec(
-        spectrum: &Spectrum,
-        spectrum_calibration: &SpectrumCalibration,
-    ) -> Vec<SpectrumExportPoint> {
-        spectrum
-            .column_iter()
-            .enumerate()
-            .map(|(i, p)| {
-                let x = spectrum_calibration.get_wavelength_from_index(i);
-                SpectrumExportPoint {
-                    wavelength: x,
-                    r: p[0],
-                    g: p[1],
-                    b: p[2],
-                    sum: p[3],
-                }
-            })
-            .collect()
-    }
-
     fn draw_spectrum(&mut self, ctx: &Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
             Plot::new("Spectrum")
@@ -420,28 +190,32 @@ impl SpectrometerGui {
                 .show(ui, |plot_ui| {
                     if self.config.view_config.draw_spectrum_r {
                         plot_ui.line(
-                            self.spectrum_channel_to_line(0)
+                            self.spectrum_container
+                                .spectrum_channel_to_line(0, &self.config)
                                 .color(Color32::RED)
                                 .name("r"),
                         );
                     }
                     if self.config.view_config.draw_spectrum_g {
                         plot_ui.line(
-                            self.spectrum_channel_to_line(1)
+                            self.spectrum_container
+                                .spectrum_channel_to_line(1, &self.config)
                                 .color(Color32::GREEN)
                                 .name("g"),
                         );
                     }
                     if self.config.view_config.draw_spectrum_b {
                         plot_ui.line(
-                            self.spectrum_channel_to_line(2)
+                            self.spectrum_container
+                                .spectrum_channel_to_line(2, &self.config)
                                 .color(Color32::BLUE)
                                 .name("b"),
                         );
                     }
                     if self.config.view_config.draw_spectrum_combined {
                         plot_ui.line(
-                            self.spectrum_channel_to_line(3)
+                            self.spectrum_container
+                                .spectrum_channel_to_line(3, &self.config)
                                 .color(Color32::LIGHT_GRAY)
                                 .name("sum"),
                         );
@@ -449,7 +223,9 @@ impl SpectrometerGui {
 
                     if self.config.view_config.draw_peaks || self.config.view_config.draw_dips {
                         if self.config.view_config.draw_peaks {
-                            let (peaks, peak_labels) = self.spectrum_to_peaks_and_dips(true);
+                            let (peaks, peak_labels) = self
+                                .spectrum_container
+                                .spectrum_to_peaks_and_dips(true, &self.config);
 
                             plot_ui.points(peaks);
                             for peak_label in peak_labels {
@@ -457,7 +233,9 @@ impl SpectrometerGui {
                             }
                         }
                         if self.config.view_config.draw_dips {
-                            let (dips, dip_labels) = self.spectrum_to_peaks_and_dips(false);
+                            let (dips, dip_labels) = self
+                                .spectrum_container
+                                .spectrum_to_peaks_and_dips(false, &self.config);
 
                             plot_ui.points(dips);
                             for dip_label in dip_labels {
@@ -665,7 +443,7 @@ impl SpectrometerGui {
 
                         // Clear buffer if value changed
                         if changed {
-                            self.spectrum_buffer.clear()
+                            self.spectrum_container.clear_buffer()
                         };
                     });
                 ui.add(
@@ -715,24 +493,9 @@ impl SpectrometerGui {
                     Button::new("Set Reference as Calibration"),
                 );
                 if set_calibration_button.clicked() {
-                    self.config.spectrum_calibration.scaling = Some(
-                        self.spectrum
-                            .row(3)
-                            .iter()
-                            .enumerate()
-                            .map(|(i, v)| {
-                                let wavelength = self
-                                    .config
-                                    .spectrum_calibration
-                                    .get_wavelength_from_index(i);
-                                let ref_value = self
-                                    .config
-                                    .reference_config
-                                    .get_value_at_wavelength(wavelength)
-                                    .unwrap();
-                                ref_value / v
-                            })
-                            .collect(),
+                    self.spectrum_container.set_calibration(
+                        &mut self.config.spectrum_calibration,
+                        &self.config.reference_config,
                     );
                 };
                 let delete_calibration_button = ui.add_enabled(
@@ -746,18 +509,18 @@ impl SpectrometerGui {
 
                 ui.separator();
                 let set_zero_button = ui.add_enabled(
-                    self.zero_reference.is_none(),
+                    !self.spectrum_container.has_zero_reference(),
                     Button::new("Set Current As Zero Reference"),
                 );
                 if set_zero_button.clicked() {
-                    self.zero_reference = Some(self.spectrum.clone());
+                    self.spectrum_container.set_zero_reference();
                 }
                 let clear_zero_button = ui.add_enabled(
-                    self.zero_reference.is_some(),
+                    self.spectrum_container.has_zero_reference(),
                     Button::new("Clear Zero Reference"),
                 );
                 if clear_zero_button.clicked() {
-                    self.zero_reference = None;
+                    self.spectrum_container.clear_zero_reference();
                 }
             });
     }
@@ -877,7 +640,7 @@ impl SpectrometerGui {
                     };
                     if value_changed {
                         changed_controls.push(own_ctrl.clone());
-                        self.spectrum_buffer.clear();
+                        self.spectrum_container.clear_buffer();
                     };
                 }
                 let default_button = ui.button("All default");
@@ -959,21 +722,20 @@ impl SpectrometerGui {
                 ui.separator();
                 let export_button = ui.add(Button::new("Export Spectrum"));
                 if export_button.clicked() {
-                    let writer = csv::Writer::from_path(&self.config.import_export_config.path);
-                    match writer {
-                        Ok(mut writer) => {
-                            for p in Self::spectrum_to_point_vec(
-                                &self.spectrum,
-                                &self.config.spectrum_calibration,
-                            ) {
-                                writer.serialize(p).unwrap();
-                            }
-                            writer.flush().unwrap();
+                    match self.spectrum_container.write_to_csv(
+                        &self.config.import_export_config.path.clone(),
+                        &self.config.spectrum_calibration,
+                    ) {
+                        Ok(()) => {
+                            self.last_error = Some(ThreadResult {
+                                id: ThreadId::Main,
+                                result: Ok(()),
+                            });
                         }
                         Err(e) => {
                             self.last_error = Some(ThreadResult {
                                 id: ThreadId::Main,
-                                result: Err(e.to_string()),
+                                result: Err(e),
                             });
                         }
                     }
@@ -1107,9 +869,7 @@ impl SpectrometerGui {
             ctx.request_repaint();
         }
 
-        if let Ok(spectrum) = self.spectrum_rx.try_recv() {
-            self.update_spectrum(spectrum);
-        }
+        self.spectrum_container.update(&self.config);
 
         if let Ok(error) = self.result_rx.try_recv() {
             self.handle_thread_result(&error);
