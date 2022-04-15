@@ -3,8 +3,6 @@ use crate::SpectrometerConfig;
 use biquad::{
     Biquad, Coefficients, DirectForm2Transposed, Hertz, ToHertz, Type, Q_BUTTERWORTH_F32,
 };
-use egui::plot::{Line, MarkerShape, Points, Text, Value, Values};
-use egui::Color32;
 use flume::{Receiver, Sender};
 use image::{ImageBuffer, Pixel, Rgb};
 use nalgebra::{Dynamic, OMatrix, U3, U4};
@@ -184,19 +182,13 @@ impl SpectrumContainer {
         &self,
         peaks: bool,
         config: &SpectrometerConfig,
-    ) -> (Points, Vec<Text>) {
+    ) -> Vec<SpectrumPoint> {
         let mut peaks_dips = Vec::new();
 
         let spectrum: Vec<_> = self.spectrum.row(3).iter().cloned().collect();
 
         let windows_size = config.view_config.peaks_dips_find_window * 2 + 1;
         let mid_index = (windows_size - 1) / 2;
-
-        let max_spectrum_value = spectrum
-            .iter()
-            .cloned()
-            .reduce(f32::max)
-            .unwrap_or_default();
 
         for (i, win) in spectrum.as_slice().windows(windows_size).enumerate() {
             let (lower, upper) = win.split_at(mid_index);
@@ -218,7 +210,6 @@ impl SpectrumContainer {
         }
 
         let mut filtered_peaks_dips = Vec::new();
-        let mut peak_dip_labels = Vec::new();
 
         let window = config.view_config.peaks_dips_unique_window;
 
@@ -234,66 +225,28 @@ impl SpectrumContainer {
                     .reduce(if peaks { f32::max } else { f32::min })
                     .unwrap()
             {
-                filtered_peaks_dips.push(peak_dip);
-                peak_dip_labels.push(
-                    Text::new(
-                        Value::new(
-                            peak_dip.wavelength,
-                            if peaks {
-                                peak_dip.value + (max_spectrum_value * 0.01)
-                            } else {
-                                peak_dip.value - (max_spectrum_value * 0.01)
-                            },
-                        ),
-                        format!("{}", peak_dip.wavelength as u32),
-                    )
-                    .color(if peaks {
-                        Color32::LIGHT_RED
-                    } else {
-                        Color32::LIGHT_BLUE
-                    }),
-                );
+                filtered_peaks_dips.push(*peak_dip);
             }
         }
-
-        (
-            Points::new(Values::from_values_iter(
-                filtered_peaks_dips
-                    .into_iter()
-                    .map(|sp| Value::new(sp.wavelength, sp.value)),
-            ))
-            .name("Peaks")
-            .shape(if peaks {
-                MarkerShape::Up
-            } else {
-                MarkerShape::Down
-            })
-            .color(if peaks {
-                Color32::LIGHT_RED
-            } else {
-                Color32::LIGHT_BLUE
-            })
-            .filled(true)
-            .radius(5.),
-            peak_dip_labels,
-        )
+        filtered_peaks_dips
     }
 
-    pub fn spectrum_channel_to_line(
+    pub fn get_spectrum_channel(
         &self,
         channel_index: usize,
         config: &SpectrometerConfig,
-    ) -> Line {
-        Line::new({
-            let calibration = &config.spectrum_calibration;
-            Values::from_values_iter(self.spectrum.row(channel_index).iter().enumerate().map(
-                |(i, p)| {
-                    let x = calibration.get_wavelength_from_index(i);
-                    let y = *p;
-                    Value::new(x, y)
-                },
-            ))
-        })
+    ) -> Vec<SpectrumPoint> {
+        let calibration = &config.spectrum_calibration;
+        self.spectrum
+            .row(channel_index)
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                let wavelength = calibration.get_wavelength_from_index(i);
+                let value = *p;
+                SpectrumPoint { wavelength, value }
+            })
+            .collect()
     }
 
     pub fn set_calibration(
@@ -362,5 +315,9 @@ impl SpectrumContainer {
                 }
             })
             .collect()
+    }
+
+    pub fn get_spectrum_max_value(&self) -> Option<f32> {
+        self.spectrum.iter().cloned().reduce(f32::max)
     }
 }

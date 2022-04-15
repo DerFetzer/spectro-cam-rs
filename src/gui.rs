@@ -1,9 +1,9 @@
 use crate::camera::CameraInfo;
-use crate::config::{CameraControl, GainPresets, Linearize, SpectrometerConfig};
+use crate::config::{CameraControl, GainPresets, Linearize, SpectrometerConfig, SpectrumPoint};
 use crate::spectrum::{SpectrumContainer, SpectrumRgb};
 use crate::tungsten_halogen::reference_from_filament_temp;
 use crate::CameraEvent;
-use egui::plot::{Legend, Plot, VLine};
+use egui::plot::{Legend, Line, MarkerShape, Plot, Points, Text, VLine, Value, Values};
 use egui::{
     Button, Color32, ComboBox, Context, Rect, RichText, Rounding, Sense, Slider, Stroke, TextureId,
     Vec2,
@@ -189,43 +189,35 @@ impl SpectrometerGui {
                 .legend(Legend::default())
                 .show(ui, |plot_ui| {
                     if self.config.view_config.draw_spectrum_r {
-                        plot_ui.line(
-                            self.spectrum_container
-                                .spectrum_channel_to_line(0, &self.config)
-                                .color(Color32::RED)
-                                .name("r"),
-                        );
+                        plot_ui.line(self.get_spectrum_line(0).color(Color32::RED).name("r"));
                     }
                     if self.config.view_config.draw_spectrum_g {
-                        plot_ui.line(
-                            self.spectrum_container
-                                .spectrum_channel_to_line(1, &self.config)
-                                .color(Color32::GREEN)
-                                .name("g"),
-                        );
+                        plot_ui.line(self.get_spectrum_line(1).color(Color32::GREEN).name("g"));
                     }
                     if self.config.view_config.draw_spectrum_b {
-                        plot_ui.line(
-                            self.spectrum_container
-                                .spectrum_channel_to_line(2, &self.config)
-                                .color(Color32::BLUE)
-                                .name("b"),
-                        );
+                        plot_ui.line(self.get_spectrum_line(2).color(Color32::BLUE).name("b"));
                     }
                     if self.config.view_config.draw_spectrum_combined {
                         plot_ui.line(
-                            self.spectrum_container
-                                .spectrum_channel_to_line(3, &self.config)
+                            self.get_spectrum_line(3)
                                 .color(Color32::LIGHT_GRAY)
                                 .name("sum"),
                         );
                     }
 
                     if self.config.view_config.draw_peaks || self.config.view_config.draw_dips {
+                        let max_spectrum_value = self
+                            .spectrum_container
+                            .get_spectrum_max_value()
+                            .unwrap_or_default();
+
                         if self.config.view_config.draw_peaks {
-                            let (peaks, peak_labels) = self
+                            let filtered_peaks = self
                                 .spectrum_container
                                 .spectrum_to_peaks_and_dips(true, &self.config);
+
+                            let (peaks, peak_labels) =
+                                Self::peaks_dips_to_plot(&filtered_peaks, true, max_spectrum_value);
 
                             plot_ui.points(peaks);
                             for peak_label in peak_labels {
@@ -233,9 +225,12 @@ impl SpectrometerGui {
                             }
                         }
                         if self.config.view_config.draw_dips {
-                            let (dips, dip_labels) = self
+                            let filtered_dips = self
                                 .spectrum_container
                                 .spectrum_to_peaks_and_dips(false, &self.config);
+
+                            let (dips, dip_labels) =
+                                Self::peaks_dips_to_plot(&filtered_dips, false, max_spectrum_value);
 
                             plot_ui.points(dips);
                             for dip_label in dip_labels {
@@ -256,6 +251,72 @@ impl SpectrometerGui {
                     }
                 });
         });
+    }
+
+    fn get_spectrum_line(&self, index: usize) -> Line {
+        Line::new({
+            Values::from_values_iter(
+                self.spectrum_container
+                    .get_spectrum_channel(index, &self.config)
+                    .into_iter()
+                    .map(|sp| Value {
+                        x: sp.wavelength as f64,
+                        y: sp.value as f64,
+                    }),
+            )
+        })
+    }
+
+    fn peaks_dips_to_plot(
+        filtered_peaks_dips: &Vec<SpectrumPoint>,
+        peaks: bool,
+        max_spectrum_value: f32,
+    ) -> (Points, Vec<Text>) {
+        let mut peak_dip_labels = Vec::new();
+
+        for peak_dip in filtered_peaks_dips {
+            peak_dip_labels.push(
+                Text::new(
+                    Value::new(
+                        peak_dip.wavelength,
+                        if peaks {
+                            peak_dip.value + (max_spectrum_value * 0.01)
+                        } else {
+                            peak_dip.value - (max_spectrum_value * 0.01)
+                        },
+                    ),
+                    format!("{}", peak_dip.wavelength as u32),
+                )
+                .color(if peaks {
+                    Color32::LIGHT_RED
+                } else {
+                    Color32::LIGHT_BLUE
+                }),
+            );
+        }
+
+        let (peaks, peak_labels) = (
+            Points::new(Values::from_values_iter(
+                filtered_peaks_dips
+                    .iter()
+                    .map(|sp| Value::new(sp.wavelength, sp.value)),
+            ))
+            .name("Peaks")
+            .shape(if peaks {
+                MarkerShape::Up
+            } else {
+                MarkerShape::Down
+            })
+            .color(if peaks {
+                Color32::LIGHT_RED
+            } else {
+                Color32::LIGHT_BLUE
+            })
+            .filled(true)
+            .radius(5.),
+            peak_dip_labels,
+        );
+        (peaks, peak_labels)
     }
 
     fn draw_camera_window(&mut self, ctx: &Context) {
