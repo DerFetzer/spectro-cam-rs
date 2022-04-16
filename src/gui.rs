@@ -742,8 +742,8 @@ impl SpectrometerGui {
             .show(ctx, |ui| {
                 ui.text_edit_singleline(&mut self.config.import_export_config.path);
                 ui.separator();
-                let load_button = ui.button("Import Reference CSV");
-                if load_button.clicked() {
+                let import_reference_button = ui.button("Import Reference CSV");
+                if import_reference_button.clicked() {
                     match csv::Reader::from_path(&self.config.import_export_config.path)
                         .and_then(|mut r| r.deserialize().collect())
                     {
@@ -761,6 +761,27 @@ impl SpectrometerGui {
                             });
                         }
                     };
+                }
+                let export_reference_button = ui.add_enabled(
+                    self.config.reference_config.reference.is_some(),
+                    Button::new("Export Reference CSV"),
+                );
+                if export_reference_button.clicked() {
+                    let writer = csv::Writer::from_path(&self.config.import_export_config.path);
+                    match writer {
+                        Ok(mut writer) => {
+                            for p in self.config.reference_config.reference.as_ref().unwrap() {
+                                writer.serialize(p).unwrap();
+                            }
+                            writer.flush().unwrap();
+                        }
+                        Err(e) => {
+                            self.last_error = Some(ThreadResult {
+                                id: ThreadId::Main,
+                                result: Err(e.to_string()),
+                            })
+                        }
+                    }
                 }
                 let delete_button = ui.add_enabled(
                     self.config.reference_config.reference.is_some(),
