@@ -172,7 +172,7 @@ impl SpectrometerGui {
 
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     fn get_controls_from_raw_controls(
-        _cam: Camera,
+        _cam: &Camera,
         _raw_controls: &Vec<Box<dyn Any>>,
     ) -> Vec<CameraControl> {
         Vec::new()
