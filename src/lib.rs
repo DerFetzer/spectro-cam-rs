@@ -1,3 +1,10 @@
+pub mod camera;
+pub mod config;
+pub mod gui;
+pub mod serde;
+pub mod spectrum;
+pub mod tungsten_halogen;
+
 use log::{set_max_level, LevelFilter};
 use simple_logger::SimpleLogger;
 

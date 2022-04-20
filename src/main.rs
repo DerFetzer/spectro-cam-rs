@@ -1,14 +1,3 @@
-mod camera;
-mod config;
-mod gui;
-mod serde;
-mod spectrum;
-mod tungsten_halogen;
-
-use crate::camera::{CameraEvent, CameraThread};
-use crate::config::SpectrometerConfig;
-use crate::gui::SpectrometerGui;
-use crate::spectrum::SpectrumCalculator;
 use egui::TextureId;
 use egui_glium::EguiGlium;
 use epi::NativeTexture;
@@ -16,7 +5,11 @@ use glium::texture::RawImage2d;
 use glium::texture::SrgbTexture2d;
 use glium::Surface as _;
 use glium::{glutin, Display};
+use spectro_cam_rs::camera::CameraThread;
+use spectro_cam_rs::config::SpectrometerConfig;
+use spectro_cam_rs::gui::SpectrometerGui;
 use spectro_cam_rs::init_logging;
+use spectro_cam_rs::spectrum::SpectrumCalculator;
 use std::rc::Rc;
 
 fn create_display(

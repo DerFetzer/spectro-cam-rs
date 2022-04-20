@@ -29,7 +29,9 @@ physical_constants = "0.4.1"
 v4l = "0.12"
 
 [dev-dependencies]
+rstest = "0.12"
 approx = "0.5.1"
+criterion = "0.3"
 
 [patch.crates-io]
 confy = { git = 'https://github.com/rust-cli/confy' }
@@ -37,3 +39,7 @@ confy = { git = 'https://github.com/rust-cli/confy' }
 [profile.release]
 lto = "thin"
 # debug = true
+
+[[bench]]
+name = "benchmark"
+harness = false

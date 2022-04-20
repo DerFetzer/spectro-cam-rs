@@ -1,8 +1,8 @@
-use crate::camera::CameraInfo;
+use crate::camera::{CameraEvent, CameraInfo};
 use crate::config::{CameraControl, GainPresets, Linearize, SpectrometerConfig, SpectrumPoint};
 use crate::spectrum::{SpectrumContainer, SpectrumRgb};
 use crate::tungsten_halogen::reference_from_filament_temp;
-use crate::CameraEvent;
+use crate::{ThreadId, ThreadResult};
 use egui::plot::{Legend, Line, MarkerShape, Plot, Points, Text, VLine, Value, Values};
 use egui::{
     Button, Color32, ComboBox, Context, Rect, RichText, Rounding, Sense, Slider, Stroke, TextureId,
@@ -11,7 +11,6 @@ use egui::{
 use flume::{Receiver, Sender};
 use glium::glutin::dpi::PhysicalSize;
 use nokhwa::{query, Camera};
-use spectro_cam_rs::{ThreadId, ThreadResult};
 use std::any::Any;
 use std::borrow::BorrowMut;
 use std::collections::HashMap;

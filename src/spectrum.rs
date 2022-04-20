@@ -1,5 +1,6 @@
-use crate::config::{Linearize, ReferenceConfig, SpectrumCalibration, SpectrumPoint};
-use crate::SpectrometerConfig;
+use crate::config::{
+    Linearize, ReferenceConfig, SpectrometerConfig, SpectrumCalibration, SpectrumPoint,
+};
 use biquad::{
     Biquad, Coefficients, DirectForm2Transposed, Hertz, ToHertz, Type, Q_BUTTERWORTH_F32,
 };
@@ -41,28 +42,33 @@ impl SpectrumCalculator {
     pub fn run(&mut self) -> ! {
         loop {
             if let Ok(window) = self.window_rx.recv() {
-                let columns = window.width();
-                let rows = window.height();
-                let max_value = rows * u8::MAX as u32 * 3;
-
-                let spectrum: SpectrumRgb = window
-                    .rows()
-                    .par_bridge()
-                    .map(|r| {
-                        SpectrumRgb::from_vec(
-                            r.flat_map(|p| p.channels().iter().map(|&v| v as f32))
-                                .collect::<Vec<f32>>(),
-                        )
-                    })
-                    .reduce(
-                        || SpectrumRgb::from_element(columns as usize, 0.),
-                        |a, b| a + b,
-                    )
-                    / max_value as f32;
+                let spectrum = Self::process_window(&window);
 
                 self.spectrum_tx.send(spectrum).unwrap();
             }
         }
+    }
+
+    pub fn process_window(window: &ImageBuffer<Rgb<u8>, Vec<u8>>) -> SpectrumRgb {
+        let columns = window.width();
+        let rows = window.height();
+        let max_value = rows * u8::MAX as u32 * 3;
+
+        let spectrum: SpectrumRgb = window
+            .rows()
+            .par_bridge()
+            .map(|r| {
+                SpectrumRgb::from_vec(
+                    r.flat_map(|p| p.channels().iter().map(|&v| v as f32))
+                        .collect::<Vec<f32>>(),
+                )
+            })
+            .reduce(
+                || SpectrumRgb::from_element(columns as usize, 0.),
+                |a, b| a + b,
+            )
+            / max_value as f32;
+        spectrum
     }
 }
 
@@ -93,7 +99,7 @@ impl SpectrumContainer {
         }
     }
 
-    fn update_spectrum(&mut self, mut spectrum: SpectrumRgb, config: &SpectrometerConfig) {
+    pub fn update_spectrum(&mut self, mut spectrum: SpectrumRgb, config: &SpectrometerConfig) {
         let ncols = spectrum.ncols();
 
         // Clear buffer and zero reference on dimension change
@@ -143,9 +149,9 @@ impl SpectrumContainer {
                 sum.iter_mut().enumerate().for_each(|(i, v)| {
                     *v *= config.spectrum_calibration.get_scaling_factor_from_index(i);
                 });
-                sum
+                sum / 3.
             } else {
-                combined_buffer.row_sum()
+                combined_buffer.row_sum() / 3.
             },
         ]);
 
@@ -319,5 +325,53 @@ impl SpectrumContainer {
 
     pub fn get_spectrum_max_value(&self) -> Option<f32> {
         self.spectrum.iter().cloned().reduce(f32::max)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::*;
+
+    #[fixture]
+    fn spectrum_container() -> SpectrumContainer {
+        let (_tx, rx) = flume::unbounded();
+        SpectrumContainer::new(rx)
+    }
+
+    #[fixture]
+    fn config() -> SpectrometerConfig {
+        SpectrometerConfig::default()
+    }
+
+    #[rstest]
+    fn buffer_size(mut spectrum_container: SpectrumContainer, config: SpectrometerConfig) {
+        spectrum_container.update_spectrum(SpectrumRgb::from_element(1000, 0.5), &config);
+        spectrum_container.update_spectrum(SpectrumRgb::from_element(1000, 0.75), &config);
+
+        assert_eq!(spectrum_container.spectrum_buffer.len(), 2);
+
+        for _ in 0..100 {
+            spectrum_container.update_spectrum(SpectrumRgb::from_element(1000, 0.5), &config);
+            assert!(
+                spectrum_container.spectrum_buffer.len()
+                    <= config.postprocessing_config.spectrum_buffer_size
+            );
+        }
+
+        assert_eq!(
+            spectrum_container.spectrum_buffer.len(),
+            config.postprocessing_config.spectrum_buffer_size
+        );
+    }
+
+    #[rstest]
+    fn get_spectrum_max_value(
+        mut spectrum_container: SpectrumContainer,
+        config: SpectrometerConfig,
+    ) {
+        spectrum_container.update_spectrum(SpectrumRgb::from_element(1000, 0.5), &config);
+
+        assert_eq!(spectrum_container.get_spectrum_max_value(), Some(0.5));
     }
 }

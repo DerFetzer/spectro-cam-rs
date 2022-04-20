@@ -1,8 +1,8 @@
 use crate::config::{CameraControl, ImageConfig};
+use crate::{ThreadId, ThreadResult};
 use flume::{Receiver, Sender};
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
 use nokhwa::{CameraFormat, FrameFormat, Resolution, ThreadedCamera};
-use spectro_cam_rs::{ThreadId, ThreadResult};
 use std::sync::{Arc, Mutex};
 
 #[cfg(target_os = "linux")]
