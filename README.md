@@ -9,11 +9,26 @@ I use it with my [i-PhosHD][iphos] low-budget spectrometer.
 
 ![Screenshot](res/screenshot.png)
 
+# Features
+
+  - Adjustable webcam picture window size
+  - Wavelength calibration
+  - Per channel gain with presets
+  - Linearization
+  - Camera controls (Linux only at the moment)
+  - Postprocessing (averaging buffer, low-pass filter, extraction of peaks and dips)
+  - Absorption spectrography via zero reference
+  - Calibration with imported reference or generated tungsten spectrum
+  - Spectrum export
+  - Multi-core support
+  - Dark theme
+
 # Limitations
 
   - Camera controls do not work on Windows and Mac
   - Not tested on Mac
   - Missing documentation
+  - No pre-built binaries yet
 
 # License
 
