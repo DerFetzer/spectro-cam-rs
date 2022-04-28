@@ -3,7 +3,17 @@
 
 A cross-platform GUI for webcam-based spectrometers.
 
+It should be a replacement for the Windows-only [Theremino Spectrometer][theremino] GUI since I only use Linux.
+
+I use it with my [i-PhosHD][iphos] low-budget spectrometer.
+
 ![Screenshot](res/screenshot.png)
+
+# Limitations
+
+  - Camera controls do not work on Windows and Mac
+  - Not tested on Mac
+  - Missing documentation
 
 # License
 
@@ -30,3 +40,5 @@ to intervene to uphold that code of conduct.
 
 [CoC]: https://www.rust-lang.org/policies/code-of-conduct
 [team]: https://github.com/DerFetzer
+[theremino]: https://physicsopenlab.org/2015/11/26/webcam-diffraction-grating-spectrometer/
+[iphos]: https://chriswesley.org/spectrometer.htm
