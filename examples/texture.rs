@@ -1,4 +1,3 @@
-use epi::NativeTexture;
 use glium::glutin;
 use glium::texture::RawImage2d;
 use glium::texture::SrgbTexture2d;
