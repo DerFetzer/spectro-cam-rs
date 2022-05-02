@@ -1,6 +1,5 @@
 use egui::TextureId;
 use egui_glium::EguiGlium;
-use epi::NativeTexture;
 use glium::texture::RawImage2d;
 use glium::texture::SrgbTexture2d;
 use glium::Surface as _;

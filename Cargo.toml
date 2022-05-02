@@ -8,18 +8,17 @@ edition = "2021"
 [dependencies]
 log = "^0.4"
 simple_logger = "2.1.0"
-egui = "0.17.0"
-egui_glium = "0.17.0"
+egui = { version = "0.18.1", features = ["serde"] }
+egui_glium = "0.18.0"
 glium = "0.31.0"
-epi = "0.17.0"
 serde = { version = "1.0", features = ["derive"] }
-serde_with = "1.12.0"
+serde_with = "1.13.0"
 nokhwa = { version = "0.9.4", features = ["input-v4l", "input-msmf", "input-avfoundation", "output-threaded"] }
 rayon = "1.5"
 flume = "0.10.12"
 image = "0.24"
 confy = { version = "0.4.0", default-features = false, features = ["yaml_conf"]}
-nalgebra = "0.30.1"
+nalgebra = "0.31.0"
 biquad = "0.4.2"
 csv = "1.1.6"
 winit = { version = "0.26.1", features = ["serde"]}
