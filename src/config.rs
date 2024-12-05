@@ -1,11 +1,9 @@
-use crate::serde::CameraFormatDef;
-use egui::plot::{Line, Value, Values};
 use egui::Vec2;
-use glium::glutin::dpi::PhysicalSize;
-use nokhwa::CameraFormat;
+use egui_plot::{Line, PlotPoints};
+use nokhwa::utils::CameraFormat;
 use serde::{Deserialize, Serialize};
-use serde_with::serde_as;
 use std::fmt::{Display, Formatter};
+use winit::dpi::PhysicalSize;
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone, Copy)]
 pub enum Linearize {
@@ -85,10 +83,10 @@ impl Default for ReferenceConfig {
 impl ReferenceConfig {
     pub fn to_line(&self) -> Option<Line> {
         self.reference.as_ref().map(|reference| {
-            Line::new(Values::from_values_iter(
+            Line::new(PlotPoints::from_iter(
                 reference
                     .iter()
-                    .map(|rp| Value::new(rp.wavelength, rp.value * self.scale)),
+                    .map(|rp| [rp.wavelength as f64, (rp.value * self.scale) as f64]),
             ))
         })
     }
@@ -114,13 +112,6 @@ impl ReferenceConfig {
 pub struct SpectrumWindow {
     pub offset: Vec2,
     pub size: Vec2,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
-pub struct CameraControl {
-    pub id: u32,
-    pub name: String,
-    pub value: i32,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
@@ -302,11 +293,9 @@ impl Default for PostprocessingConfig {
     }
 }
 
-#[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct SpectrometerConfig {
     pub camera_id: usize,
-    #[serde_as(as = "Option<CameraFormatDef>")]
     pub camera_format: Option<CameraFormat>,
     pub image_config: ImageConfig,
     pub spectrum_calibration: SpectrumCalibration,

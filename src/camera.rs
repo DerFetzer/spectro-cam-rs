@@ -1,24 +1,32 @@
-use crate::config::{CameraControl, ImageConfig};
+use crate::config::ImageConfig;
 use crate::{ThreadId, ThreadResult};
 use flume::{Receiver, Sender};
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
-use nokhwa::{CameraFormat, FrameFormat, Resolution, ThreadedCamera};
+use nokhwa::pixel_format::RgbFormat;
+use nokhwa::utils::{
+    CameraFormat, CameraIndex, ControlValueSetter, FrameFormat, KnownCameraControl,
+    RequestedFormat, RequestedFormatType, Resolution,
+};
+use nokhwa::CallbackCamera;
 use std::sync::{Arc, Mutex};
-
-#[cfg(target_os = "linux")]
-use v4l::Control;
 
 #[derive(Debug, Clone)]
 pub struct CameraInfo {
-    pub info: nokhwa::CameraInfo,
+    pub info: nokhwa::utils::CameraInfo,
     pub formats: Vec<CameraFormat>,
 }
 
 impl CameraInfo {
-    pub fn get_default_camera_formats() -> Vec<CameraFormat> {
+    pub fn get_default_camera_format_types() -> Vec<RequestedFormatType> {
         vec![
-            CameraFormat::default(),
-            CameraFormat::new(Resolution::new(640, 480), FrameFormat::YUYV, 30),
+            RequestedFormatType::None,
+            RequestedFormatType::AbsoluteHighestResolution,
+            RequestedFormatType::Exact(CameraFormat::default()),
+            RequestedFormatType::Exact(CameraFormat::new(
+                Resolution::new(640, 480),
+                FrameFormat::YUYV,
+                30,
+            )),
         ]
     }
 }
@@ -26,13 +34,12 @@ impl CameraInfo {
 #[derive(Debug, Clone)]
 pub enum CameraEvent {
     StartStream {
-        id: usize,
+        id: CameraIndex,
         format: CameraFormat,
     },
     StopStream,
     Config(ImageConfig),
-    #[cfg(target_os = "linux")]
-    Controls(Vec<CameraControl>),
+    Controls(Vec<(KnownCameraControl, ControlValueSetter)>),
 }
 
 struct Exit {}
@@ -62,7 +69,8 @@ impl CameraThread {
     pub fn run(&mut self) -> ! {
         let (exit_tx, exit_rx) = flume::bounded(0);
         let config: Arc<Mutex<Option<ImageConfig>>> = Arc::new(Mutex::new(None));
-        let controls: Arc<Mutex<Option<Vec<CameraControl>>>> = Arc::new(Mutex::new(None));
+        let controls: Arc<Mutex<Option<Vec<(KnownCameraControl, ControlValueSetter)>>>> =
+            Arc::new(Mutex::new(None));
         let mut join_handle = None;
         loop {
             if let Ok(event) = self.config_rx.recv() {
@@ -76,7 +84,13 @@ impl CameraThread {
                         let result_tx = self.result_tx.clone();
                         let exit_rx = exit_rx.clone();
                         let hdl = std::thread::spawn(move || {
-                            let mut camera = match ThreadedCamera::new(id, Some(format)) {
+                            let mut camera = match CallbackCamera::new(
+                                id,
+                                RequestedFormat::new::<RgbFormat>(
+                                    nokhwa::utils::RequestedFormatType::Exact(format),
+                                ),
+                                |_| {},
+                            ) {
                                 Ok(camera) => camera,
                                 Err(e) => {
                                     log::error!("{:?}", e);
@@ -90,7 +104,7 @@ impl CameraThread {
                                 }
                             };
 
-                            match camera.open_stream(|_| {}) {
+                            match camera.open_stream() {
                                 Ok(_) => {}
                                 Err(e) => {
                                     log::error!("{:?}", e);
@@ -124,12 +138,15 @@ impl CameraThread {
                                 }
                                 // Check for new controls
                                 if let Some(controls) = controls.lock().unwrap().take() {
-                                    for control in &controls {
-                                        Self::set_control(&mut camera, control);
+                                    for (control, setter) in &controls {
+                                        camera.set_camera_control(control.clone(), setter.clone());
                                     }
                                 }
                                 // Get frame
-                                let frame = match camera.poll_frame() {
+                                let mut frame = match camera
+                                    .poll_frame()
+                                    .and_then(|frame| frame.decode_image::<RgbFormat>())
+                                {
                                     Ok(frame) => frame,
                                     Err(e) => {
                                         log::error!("{:?}", e);
@@ -142,11 +159,6 @@ impl CameraThread {
                                         return;
                                     }
                                 };
-
-                                // TODO: Remove repacking after nokhwa uses image = "0.24"
-                                let (width, heigth) = frame.dimensions();
-                                let mut frame =
-                                    ImageBuffer::from_raw(width, heigth, frame.into_raw()).unwrap();
 
                                 if let Some(cfg) = &inner_config {
                                     // Flip
@@ -182,7 +194,6 @@ impl CameraThread {
                     CameraEvent::Config(cfg) => {
                         *config.lock().unwrap() = Some(cfg);
                     }
-                    #[cfg(target_os = "linux")]
                     CameraEvent::Controls(ctrls) => {
                         *controls.lock().unwrap() = Some(ctrls);
                     }
@@ -190,14 +201,4 @@ impl CameraThread {
             }
         }
     }
-
-    #[cfg(target_os = "linux")]
-    fn set_control(camera: &mut ThreadedCamera, control: &CameraControl) {
-        camera
-            .set_raw_camera_control(&control.id, &Control::Value(control.value))
-            .map_err(|e| log::warn!("Could not write camera control: {:?}", e))
-            .ok();
-    }
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
-    fn set_control(_camera: &mut ThreadedCamera, _control: &CameraControl) {}
 }

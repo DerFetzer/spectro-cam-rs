@@ -7,33 +7,32 @@ edition = "2021"
 
 [dependencies]
 log = "^0.4"
-simple_logger = "2.1.0"
-egui = { version = "0.18.1", features = ["serde"] }
-egui_glium = "0.18.0"
-glium = "0.31.0"
+simple_logger = "5.0.0"
+egui = { version = "0.29.1", features = ["serde"] }
+egui_glium = "0.29.0"
+glium = "0.36.0"
 serde = { version = "1.0", features = ["derive"] }
-serde_with = "1.13.0"
-nokhwa = { version = "0.9.4", features = ["input-v4l", "input-msmf", "input-avfoundation", "output-threaded"] }
-rayon = "1.5"
-flume = "0.10.12"
-image = "0.24"
-confy = { version = "0.4.0", default-features = false, features = ["yaml_conf"]}
-nalgebra = "0.31.0"
+serde_with = "3.11.0"
+nokhwa = { version = "0.10.6", features = ["input-v4l", "input-msmf", "input-avfoundation", "output-threaded", "serialize"] }
+rayon = "1.10"
+flume = "0.11.1"
+image = "0.25"
+confy = { version = "0.6.1", default-features = false, features = ["yaml_conf"]}
+nalgebra = "0.33.2"
 biquad = "0.4.2"
-csv = "1.1.6"
-winit = { version = "0.26.1", features = ["serde"]}
-physical_constants = "0.4.1"
+csv = "1.3.1"
+winit = { version = "0.30.5", features = ["serde"]}
+physical_constants = "0.5.0"
+egui_plot = { version = "0.29.0", features = ["serde"] }
+indexmap = "2.7.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-v4l = "0.12"
+v4l = "0.14"
 
 [dev-dependencies]
-rstest = "0.12"
+rstest = "0.23"
 approx = "0.5.1"
-criterion = "0.3"
-
-[patch.crates-io]
-confy = { git = 'https://github.com/rust-cli/confy' }
+criterion = "0.5"
 
 [profile.release]
 lto = "thin"

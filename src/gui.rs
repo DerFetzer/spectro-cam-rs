@@ -1,31 +1,29 @@
 use crate::camera::{CameraEvent, CameraInfo};
-use crate::config::{CameraControl, GainPresets, Linearize, SpectrometerConfig, SpectrumPoint};
+use crate::config::{GainPresets, Linearize, SpectrometerConfig, SpectrumPoint};
 use crate::spectrum::{SpectrumContainer, SpectrumRgb};
 use crate::tungsten_halogen::reference_from_filament_temp;
 use crate::{ThreadId, ThreadResult};
-use egui::plot::{Legend, Line, MarkerShape, Plot, Points, Text, VLine, Value, Values};
 use egui::{
     Button, Color32, ComboBox, Context, Rect, RichText, Rounding, Sense, Slider, Stroke, TextureId,
     Vec2,
 };
+use egui_plot::{Legend, Line, MarkerShape, Plot, PlotPoint, Points, Text, VLine};
 use flume::{Receiver, Sender};
-use glium::glutin::dpi::PhysicalSize;
-use nokhwa::{query, Camera};
-use std::any::Any;
-use std::borrow::BorrowMut;
-use std::collections::HashMap;
-
-#[cfg(target_os = "linux")]
-use v4l::{
-    control::{Description, Flags},
-    Control,
+use indexmap::IndexMap;
+use nokhwa::pixel_format::RgbFormat;
+use nokhwa::utils::{
+    ApiBackend, CameraControl, CameraFormat, ControlValueDescription, ControlValueSetter,
+    KnownCameraControlFlag,
 };
+use nokhwa::utils::{CameraIndex, RequestedFormat, RequestedFormatType};
+use nokhwa::{query, Camera};
+use std::borrow::BorrowMut;
+use winit::dpi::PhysicalSize;
 
 pub struct SpectrometerGui {
     config: SpectrometerConfig,
     running: bool,
-    camera_info: HashMap<usize, CameraInfo>,
-    camera_raw_controls: Vec<Box<dyn Any>>,
+    camera_info: IndexMap<CameraIndex, crate::camera::CameraInfo>,
     camera_controls: Vec<CameraControl>,
     webcam_texture_id: TextureId,
     spectrum_container: SpectrumContainer,
@@ -48,7 +46,6 @@ impl SpectrometerGui {
             config,
             running: false,
             camera_info: Default::default(),
-            camera_raw_controls: Default::default(),
             camera_controls: Default::default(),
             webcam_texture_id,
             spectrum_container: SpectrumContainer::new(spectrum_rx),
@@ -63,29 +60,33 @@ impl SpectrometerGui {
     }
 
     fn query_cameras(&mut self) {
-        let default_camera_formats = CameraInfo::get_default_camera_formats();
-
-        for i in query()
-            .unwrap_or_default()
-            .iter()
-            .map(nokhwa::CameraInfo::index)
-        {
-            for format in &default_camera_formats {
-                if let Ok(cam) = Camera::new(i, Some(*format)).borrow_mut() {
-                    let mut formats = cam.compatible_camera_formats().unwrap_or_default();
-                    formats.sort_by_key(nokhwa::CameraFormat::width);
-                    self.camera_info.insert(
-                        i,
-                        CameraInfo {
-                            info: cam.info().clone(),
-                            formats,
-                        },
-                    );
-                    break;
+        for info in query(ApiBackend::Auto).unwrap_or_default().iter() {
+            for format_type in crate::camera::CameraInfo::get_default_camera_format_types() {
+                match Camera::new(
+                    info.index().clone(),
+                    RequestedFormat::new::<RgbFormat>(format_type),
+                )
+                .borrow_mut()
+                {
+                    Ok(cam) => {
+                        let mut formats = cam.compatible_camera_formats().unwrap_or_default();
+                        formats.sort_by_key(CameraFormat::width);
+                        self.camera_info.insert(
+                            info.index().clone(),
+                            CameraInfo {
+                                info: info.clone(),
+                                formats,
+                            },
+                        );
+                        break;
+                    }
+                    Err(e) => {
+                        log::warn!("Could not open camera {info} with format {format_type}: {e}")
+                    }
                 }
             }
-            if !self.camera_info.contains_key(&i) {
-                log::warn!("Could not query camera {}", i);
+            if !self.camera_info.contains_key(info.index()) {
+                log::warn!("Could not query camera {}", info);
             }
         }
     }
@@ -97,85 +98,41 @@ impl SpectrometerGui {
     }
 
     fn start_stream(&mut self) {
-        let default_camera_formats = CameraInfo::get_default_camera_formats();
-        for format in default_camera_formats {
-            if let Ok(cam) = Camera::new(self.config.camera_id, Some(format)) {
-                let raw_controls = Self::get_raw_controls(&cam);
+        let requested_format = RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(
+            self.config.camera_format.unwrap(),
+        ));
+        if let Ok(cam) = Camera::new(
+            CameraIndex::Index(self.config.camera_id as u32),
+            requested_format,
+        ) {
+            let raw_controls = Self::get_controls(&cam);
 
-                self.camera_controls = Self::get_controls_from_raw_controls(&cam, &raw_controls);
-                self.camera_raw_controls = raw_controls;
-                break;
-            }
+            self.camera_controls = raw_controls;
         }
         self.spectrum_container.clear_buffer();
         self.send_config();
         self.camera_config_tx
             .send(CameraEvent::StartStream {
-                id: self.config.camera_id,
+                id: self
+                    .camera_info
+                    .get_index(self.config.camera_id)
+                    .unwrap()
+                    .0
+                    .clone(),
                 format: self.config.camera_format.unwrap(),
             })
             .unwrap();
     }
 
-    #[cfg(target_os = "linux")]
-    fn get_raw_controls(cam: &Camera) -> Vec<Box<dyn Any>> {
-        cam.raw_supported_camera_controls()
+    fn get_controls(cam: &Camera) -> Vec<CameraControl> {
+        cam.camera_controls()
             .unwrap_or_default()
             .into_iter()
-            .filter(|c| match c.downcast_ref::<Description>() {
-                None => false,
-                Some(c) => {
-                    !c.flags.contains(Flags::READ_ONLY) && !c.flags.contains(Flags::WRITE_ONLY)
-                }
+            .filter(|c| {
+                !c.flag().contains(&KnownCameraControlFlag::ReadOnly)
+                    && !c.flag().contains(&KnownCameraControlFlag::WriteOnly)
             })
             .collect()
-    }
-
-    #[cfg(target_os = "linux")]
-    fn get_controls_from_raw_controls(
-        cam: &Camera,
-        raw_controls: &[Box<dyn Any>],
-    ) -> Vec<CameraControl> {
-        raw_controls
-            .iter()
-            .filter_map(|ctrl| {
-                let descr = match ctrl.downcast_ref::<Description>() {
-                    None => return None,
-                    Some(descr) => descr,
-                };
-                if descr.flags.contains(Flags::READ_ONLY) || descr.flags.contains(Flags::WRITE_ONLY)
-                {
-                    None
-                } else {
-                    let rcc = *cam
-                        .raw_camera_control(&descr.id)
-                        .map(|c| c.downcast::<Control>().unwrap())
-                        .unwrap();
-                    let value = match rcc {
-                        Control::Value(v) => v,
-                        _ => return None,
-                    };
-                    Some(CameraControl {
-                        id: descr.id,
-                        name: descr.name.clone(),
-                        value,
-                    })
-                }
-            })
-            .collect()
-    }
-
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
-    fn get_raw_controls(_cam: &Camera) -> Vec<Box<dyn Any>> {
-        Vec::new()
-    }
-
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
-    fn get_controls_from_raw_controls(
-        _cam: &Camera,
-        _raw_controls: &Vec<Box<dyn Any>>,
-    ) -> Vec<CameraControl> {
-        Vec::new()
     }
 
     fn stop_stream(&mut self) {
@@ -254,15 +211,11 @@ impl SpectrometerGui {
 
     fn get_spectrum_line(&self, index: usize) -> Line {
         Line::new({
-            Values::from_values_iter(
-                self.spectrum_container
-                    .get_spectrum_channel(index, &self.config)
-                    .into_iter()
-                    .map(|sp| Value {
-                        x: sp.wavelength as f64,
-                        y: sp.value as f64,
-                    }),
-            )
+            self.spectrum_container
+                .get_spectrum_channel(index, &self.config)
+                .into_iter()
+                .map(|sp| [sp.wavelength as f64, sp.value as f64])
+                .collect::<Vec<_>>()
         })
     }
 
@@ -276,7 +229,7 @@ impl SpectrometerGui {
         for peak_dip in filtered_peaks_dips {
             peak_dip_labels.push(
                 Text::new(
-                    Value::new(
+                    PlotPoint::new(
                         peak_dip.wavelength,
                         if peaks {
                             peak_dip.value + (max_spectrum_value * 0.01)
@@ -295,11 +248,12 @@ impl SpectrometerGui {
         }
 
         let (peaks, peak_labels) = (
-            Points::new(Values::from_values_iter(
+            Points::new(
                 filtered_peaks_dips
                     .iter()
-                    .map(|sp| Value::new(sp.wavelength, sp.value)),
-            ))
+                    .map(|sp| [sp.wavelength as f64, sp.value as f64])
+                    .collect::<Vec<_>>(),
+            )
             .name("Peaks")
             .shape(if peaks {
                 MarkerShape::Up
@@ -329,11 +283,14 @@ impl SpectrometerGui {
 
                 ui.separator();
 
-                let image_size = egui::Vec2::new(
+                let texture_size = egui::Vec2::new(
                     self.config.camera_format.unwrap().width() as f32,
                     self.config.camera_format.unwrap().height() as f32,
-                ) * self.config.view_config.image_scale;
-                let image_response = ui.image(self.webcam_texture_id, image_size);
+                );
+                let image_size = texture_size * self.config.view_config.image_scale;
+                let image = egui::Image::from_texture((self.webcam_texture_id, texture_size))
+                    .fit_to_exact_size(image_size);
+                let image_response = ui.add(image);
 
                 // Paint window rect
                 ui.with_layer_id(image_response.layer_id, |ui| {
@@ -350,7 +307,7 @@ impl SpectrometerGui {
                     );
                     painter.rect_stroke(
                         window_rect,
-                        Rounding::none(),
+                        Rounding::ZERO,
                         Stroke::new(2., Color32::GOLD),
                     );
                 });
@@ -638,91 +595,107 @@ impl SpectrometerGui {
             });
     }
 
-    #[cfg(target_os = "linux")]
     fn draw_camera_control_window(&mut self, ctx: &Context) {
         egui::Window::new("Camera Controls")
             .open(&mut self.config.view_config.show_camera_control_window)
             .show(ctx, |ui| {
                 let mut changed_controls = vec![];
-                for ctrl in &mut self.camera_raw_controls {
-                    let ctrl = match ctrl.downcast_ref::<Description>() {
-                        None => continue,
-                        Some(ctrl) => ctrl,
-                    };
-                    let own_ctrl = match self.camera_controls.iter_mut().find(|c| c.id == ctrl.id) {
-                        None => continue,
-                        Some(own_ctrl) => own_ctrl,
-                    };
-                    let value_changed = match ctrl.typ {
-                        v4l::control::Type::Integer => ui
-                            .add(
-                                Slider::new(
-                                    &mut own_ctrl.value,
-                                    (ctrl.minimum + 1)..=(ctrl.maximum - 1),
-                                )
-                                .step_by(ctrl.step as f64)
-                                .text(&ctrl.name),
-                            )
-                            .changed(),
-                        v4l::control::Type::Boolean => {
-                            let mut checked = own_ctrl.value == 1;
-                            let response = ui.checkbox(&mut checked, &ctrl.name);
-                            own_ctrl.value = checked as i32;
-                            response.changed()
+                for ctrl in &mut self.camera_controls {
+                    let value_setter = match ctrl.value() {
+                        ControlValueSetter::Integer(mut value) => {
+                            if let ControlValueDescription::IntegerRange {
+                                min,
+                                max,
+                                value: _,
+                                step,
+                                default: _,
+                            } = ctrl.description()
+                            {
+                                if ui
+                                    .add(
+                                        Slider::new(&mut value, (*min + 1)..=(*max - 1))
+                                            .step_by(*step as f64)
+                                            .text(ctrl.name()),
+                                    )
+                                    .changed()
+                                {
+                                    Some(ControlValueSetter::Integer(value))
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
                         }
-                        v4l::control::Type::Menu => {
-                            let mut changed = false;
-                            let items = match ctrl.items.as_ref() {
-                                None => continue,
-                                Some(items) => items,
-                            };
-                            let selected_text =
-                                match items.iter().find(|&i| i.0 == own_ctrl.value as u32) {
-                                    None => continue,
-                                    Some(i) => i.1.to_string(),
-                                };
-                            ComboBox::from_label(&ctrl.name)
-                                .selected_text(selected_text)
-                                .show_ui(ui, |ui| {
-                                    for item in items.iter() {
-                                        changed |= ui
-                                            .selectable_value(
-                                                &mut own_ctrl.value,
-                                                item.0 as i32,
-                                                item.1.to_string(),
-                                            )
-                                            .changed();
-                                    }
-                                });
-                            changed
+                        ControlValueSetter::Boolean(mut value) => {
+                            if let ControlValueDescription::Boolean { .. } = ctrl.description() {
+                                if ui.checkbox(&mut value, ctrl.name()).changed() {
+                                    Some(ControlValueSetter::Boolean(value))
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
                         }
-                        _ => false,
+                        // TODO: ControlValueDescription::Enum only has integer options no
+                        // description string.
+                        //
+                        //v4l::control::Type::Menu => {
+                        //    let mut changed = false;
+                        //    let items = match ctrl.items.as_ref() {
+                        //        None => continue,
+                        //        Some(items) => items,
+                        //    };
+                        //    let selected_text =
+                        //        match items.iter().find(|&i| i.0 == own_ctrl.value as u32) {
+                        //            None => continue,
+                        //            Some(i) => i.1.to_string(),
+                        //        };
+                        //    ComboBox::from_label(&ctrl.name)
+                        //        .selected_text(selected_text)
+                        //        .show_ui(ui, |ui| {
+                        //            for item in items.iter() {
+                        //                changed |= ui
+                        //                    .selectable_value(
+                        //                        &mut own_ctrl.value,
+                        //                        item.0 as i32,
+                        //                        item.1.to_string(),
+                        //                    )
+                        //                    .changed();
+                        //            }
+                        //        });
+                        //    changed
+                        //}
+                        _ => None,
                     };
-                    if value_changed {
-                        changed_controls.push(own_ctrl.clone());
+                    if let Some(value_setter) = value_setter {
+                        changed_controls.push((ctrl.control(), value_setter));
                         self.spectrum_container.clear_buffer();
                     };
                 }
-                let default_button = ui.button("All default");
-                if default_button.clicked() {
-                    for ctrl in &mut self.camera_raw_controls {
-                        let ctrl = match ctrl.downcast_ref::<Description>() {
-                            None => continue,
-                            Some(ctrl) => ctrl,
-                        };
-                        let own_ctrl =
-                            match self.camera_controls.iter_mut().find(|c| c.id == ctrl.id) {
-                                None => continue,
-                                Some(own_ctrl) => own_ctrl,
-                            };
-
-                        own_ctrl.value = ctrl.default;
-                    }
-                    // Cannot use self.send_config due to mutable borrow in open
-                    self.camera_config_tx
-                        .send(CameraEvent::Controls(self.camera_controls.clone()))
-                        .unwrap();
-                }
+                // TODO
+                //
+                //let default_button = ui.button("All default");
+                //if default_button.clicked() {
+                //    for ctrl in &mut self.camera_raw_controls {
+                //        let ctrl = match ctrl.downcast_ref::<Description>() {
+                //            None => continue,
+                //            Some(ctrl) => ctrl,
+                //        };
+                //        let own_ctrl =
+                //            match self.camera_controls.iter_mut().find(|c| c.id == ctrl.id) {
+                //                None => continue,
+                //                Some(own_ctrl) => own_ctrl,
+                //            };
+                //
+                //        own_ctrl.value = ctrl.default;
+                //    }
+                //    // Cannot use self.send_config due to mutable borrow in open
+                //    self.camera_config_tx
+                //        .send(CameraEvent::Controls(self.camera_controls.clone()))
+                //        .unwrap();
+                //}
                 if !changed_controls.is_empty() {
                     // Cannot use self.send_config due to mutable borrow in open
                     self.camera_config_tx
@@ -731,9 +704,6 @@ impl SpectrometerGui {
                 }
             });
     }
-
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
-    fn draw_camera_control_window(&mut self, _ctx: &Context) {}
 
     fn draw_import_export_window(&mut self, ctx: &Context) {
         egui::Window::new("Import/Export")
@@ -835,40 +805,51 @@ impl SpectrometerGui {
     fn draw_connection_panel(&mut self, ctx: &Context) {
         egui::TopBottomPanel::top("camera").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ComboBox::from_id_source("cb_camera")
+                ComboBox::from_id_salt("cb_camera")
                     .selected_text(format!(
                         "{}: {}",
                         self.config.camera_id,
                         self.camera_info
-                            .get(&self.config.camera_id)
-                            .map(|ci| ci.info.human_name())
+                            .get_index(self.config.camera_id)
+                            .map(|(_index, info)| info.info.human_name())
                             .unwrap_or_default()
                     ))
                     .show_ui(ui, |ui| {
                         if !self.running {
-                            for (i, ci) in &self.camera_info {
+                            for (i, (_camera_index, camera_info)) in
+                                self.camera_info.iter().enumerate()
+                            {
                                 ui.selectable_value(
                                     &mut self.config.camera_id,
-                                    *i,
-                                    format!("{}: {}", i, ci.info.human_name()),
+                                    i,
+                                    format!("{}: {}", i, camera_info.info.human_name()),
                                 );
                             }
                         }
                     });
-                ComboBox::from_id_source("cb_camera_format")
+                ComboBox::from_id_salt("cb_camera_format")
                     .selected_text(match self.config.camera_format {
                         None => "".to_string(),
                         Some(camera_format) => format!("{}", camera_format),
                     })
                     .show_ui(ui, |ui| {
                         if !self.running {
-                            if let Some(ci) = self.camera_info.get(&self.config.camera_id) {
-                                for cf in &ci.formats {
-                                    ui.selectable_value(
-                                        &mut self.config.camera_format,
-                                        Some(*cf),
-                                        format!("{}", cf),
-                                    );
+                            if let Some((camera_index, _)) =
+                                self.camera_info.get_index(self.config.camera_id)
+                            {
+                                if let Ok(mut camera) = Camera::new(
+                                    camera_index.clone(),
+                                    RequestedFormat::new::<RgbFormat>(RequestedFormatType::None),
+                                ) {
+                                    if let Ok(formats) = camera.compatible_camera_formats() {
+                                        for cf in formats {
+                                            ui.selectable_value(
+                                                &mut self.config.camera_format,
+                                                Some(cf),
+                                                format!("{}", cf),
+                                            );
+                                        }
+                                    }
                                 }
                             }
                         }

@@ -1,7 +1,6 @@
 pub mod camera;
 pub mod config;
 pub mod gui;
-pub mod serde;
 pub mod spectrum;
 pub mod tungsten_halogen;
 
