@@ -104,18 +104,15 @@ impl CameraThread {
                                 }
                             };
 
-                            match camera.open_stream() {
-                                Ok(_) => {}
-                                Err(e) => {
-                                    log::error!("{:?}", e);
-                                    result_tx
-                                        .send(ThreadResult {
-                                            id: ThreadId::Camera,
-                                            result: Err("Could not open stream".into()),
-                                        })
-                                        .unwrap();
-                                    return;
-                                }
+                            if let Err(e) = camera.open_stream() {
+                                log::error!("{:?}", e);
+                                result_tx
+                                    .send(ThreadResult {
+                                        id: ThreadId::Camera,
+                                        result: Err("Could not open stream".into()),
+                                    })
+                                    .unwrap();
+                                return;
                             };
 
                             result_tx
@@ -139,7 +136,12 @@ impl CameraThread {
                                 // Check for new controls
                                 if let Some(controls) = controls.lock().unwrap().take() {
                                     for (control, setter) in &controls {
-                                        camera.set_camera_control(control.clone(), setter.clone());
+                                        let control: &KnownCameraControl = control;
+                                        if let Err(e) =
+                                            camera.set_camera_control(*control, setter.clone())
+                                        {
+                                            log::error!("{:?}", e);
+                                        }
                                     }
                                 }
                                 // Get frame

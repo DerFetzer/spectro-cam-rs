@@ -6,13 +6,13 @@ use biquad::{
 };
 use flume::{Receiver, Sender};
 use image::{ImageBuffer, Pixel, Rgb};
-use nalgebra::{Dynamic, OMatrix, U3, U4};
+use nalgebra::{Dyn, OMatrix, U3, U4};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
-pub type SpectrumRgb = OMatrix<f32, U3, Dynamic>;
-pub type Spectrum = OMatrix<f32, U4, Dynamic>;
+pub type SpectrumRgb = OMatrix<f32, U3, Dyn>;
+pub type Spectrum = OMatrix<f32, U4, Dyn>;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy, Default)]
 pub struct SpectrumExportPoint {
@@ -103,7 +103,7 @@ impl SpectrumContainer {
         let ncols = spectrum.ncols();
 
         // Clear buffer and zero reference on dimension change
-        if let Some(s) = self.spectrum_buffer.get(0) {
+        if let Some(s) = self.spectrum_buffer.front() {
             if s.ncols() != ncols {
                 self.spectrum_buffer.clear();
                 self.zero_reference = None;

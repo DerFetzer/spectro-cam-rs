@@ -7,7 +7,6 @@ const K: f64 = physical_constants::BOLTZMANN_CONSTANT;
 
 pub fn reference_from_filament_temp(filament_temp: u16) -> Vec<SpectrumPoint> {
     let mut ref_points = (340..2000)
-        .into_iter()
         .map(|wavelength| SpectrumPoint {
             wavelength: wavelength as f32,
             value: spectral_irradiance(wavelength as f64, filament_temp as f64).unwrap() as f32,
