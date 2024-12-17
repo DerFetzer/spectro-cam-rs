@@ -69,6 +69,7 @@ impl CameraThread {
     pub fn run(&mut self) -> ! {
         let (exit_tx, exit_rx) = flume::bounded(0);
         let config: Arc<Mutex<Option<ImageConfig>>> = Arc::new(Mutex::new(None));
+        #[allow(clippy::type_complexity)]
         let controls: Arc<Mutex<Option<Vec<(KnownCameraControl, ControlValueSetter)>>>> =
             Arc::new(Mutex::new(None));
         let mut join_handle = None;
