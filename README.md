@@ -1,4 +1,4 @@
-# **WIP**
+# :warning: **There are some problems left after recent dependency updates.** :warning:
 # spectro-cam-rs
 
 A cross-platform GUI for webcam-based spectrometers.
