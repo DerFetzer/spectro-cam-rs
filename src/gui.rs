@@ -834,22 +834,15 @@ impl SpectrometerGui {
                     })
                     .show_ui(ui, |ui| {
                         if !self.running {
-                            if let Some((camera_index, _)) =
+                            if let Some((_camera_index, camera_info)) =
                                 self.camera_info.get_index(self.config.camera_id)
                             {
-                                if let Ok(mut camera) = Camera::new(
-                                    camera_index.clone(),
-                                    RequestedFormat::new::<RgbFormat>(RequestedFormatType::None),
-                                ) {
-                                    if let Ok(formats) = camera.compatible_camera_formats() {
-                                        for cf in formats {
-                                            ui.selectable_value(
-                                                &mut self.config.camera_format,
-                                                Some(cf),
-                                                format!("{}", cf),
-                                            );
-                                        }
-                                    }
+                                for cf in &camera_info.formats {
+                                    ui.selectable_value(
+                                        &mut self.config.camera_format,
+                                        Some(*cf),
+                                        format!("{}", cf),
+                                    );
                                 }
                             }
                         }
