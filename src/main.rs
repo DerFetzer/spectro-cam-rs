@@ -147,7 +147,10 @@ impl ApplicationHandler for App {
         };
 
         match &event {
-            WindowEvent::CloseRequested | WindowEvent::Destroyed => event_loop.exit(),
+            WindowEvent::CloseRequested | WindowEvent::Destroyed => {
+                self.gui.persist_config(self.window.inner_size());
+                event_loop.exit();
+            }
             WindowEvent::Resized(new_size) => {
                 self.display.resize((*new_size).into());
             }
