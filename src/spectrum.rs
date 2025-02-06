@@ -39,14 +39,13 @@ impl SpectrumCalculator {
         }
     }
 
-    pub fn run(&mut self) -> ! {
-        loop {
-            if let Ok(window) = self.window_rx.recv() {
-                let spectrum = Self::process_window(&window);
+    pub fn run(&mut self) {
+        while let Ok(window) = self.window_rx.recv() {
+            let spectrum = Self::process_window(&window);
 
-                self.spectrum_tx.send(spectrum).unwrap();
-            }
+            self.spectrum_tx.send(spectrum).unwrap();
         }
+        log::debug!("SpectrumCalculator thread exiting");
     }
 
     pub fn process_window(window: &ImageBuffer<Rgb<u8>, Vec<u8>>) -> SpectrumRgb {
