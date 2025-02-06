@@ -66,142 +66,141 @@ impl CameraThread {
         }
     }
 
-    pub fn run(&mut self) -> ! {
+    pub fn run(&mut self) {
         let (exit_tx, exit_rx) = flume::bounded(0);
         let config: Arc<Mutex<Option<ImageConfig>>> = Arc::new(Mutex::new(None));
         #[allow(clippy::type_complexity)]
         let controls: Arc<Mutex<Option<Vec<(KnownCameraControl, ControlValueSetter)>>>> =
             Arc::new(Mutex::new(None));
         let mut join_handle = None;
-        loop {
-            if let Ok(event) = self.config_rx.recv() {
-                match event {
-                    CameraEvent::StartStream { id, format } => {
-                        let config = Arc::clone(&config);
-                        let controls = Arc::clone(&controls);
+        while let Ok(event) = self.config_rx.recv() {
+            match event {
+                CameraEvent::StartStream { id, format } => {
+                    let config = Arc::clone(&config);
+                    let controls = Arc::clone(&controls);
 
-                        let frame_tx = self.frame_tx.clone();
-                        let window_tx = self.window_tx.clone();
-                        let result_tx = self.result_tx.clone();
-                        let exit_rx = exit_rx.clone();
-                        let hdl = std::thread::spawn(move || {
-                            let mut camera = match CallbackCamera::new(
-                                id,
-                                RequestedFormat::new::<RgbFormat>(
-                                    nokhwa::utils::RequestedFormatType::Exact(format),
-                                ),
-                                |_| {},
-                            ) {
-                                Ok(camera) => camera,
+                    let frame_tx = self.frame_tx.clone();
+                    let window_tx = self.window_tx.clone();
+                    let result_tx = self.result_tx.clone();
+                    let exit_rx = exit_rx.clone();
+                    let hdl = std::thread::spawn(move || {
+                        let mut camera = match CallbackCamera::new(
+                            id,
+                            RequestedFormat::new::<RgbFormat>(
+                                nokhwa::utils::RequestedFormatType::Exact(format),
+                            ),
+                            |_| {},
+                        ) {
+                            Ok(camera) => camera,
+                            Err(e) => {
+                                log::error!("{:?}", e);
+                                result_tx
+                                    .send(ThreadResult {
+                                        id: ThreadId::Camera,
+                                        result: Err("Could not initialize camera".into()),
+                                    })
+                                    .unwrap();
+                                return;
+                            }
+                        };
+
+                        if let Err(e) = camera.open_stream() {
+                            log::error!("{:?}", e);
+                            result_tx
+                                .send(ThreadResult {
+                                    id: ThreadId::Camera,
+                                    result: Err("Could not open stream".into()),
+                                })
+                                .unwrap();
+                            return;
+                        };
+
+                        result_tx
+                            .send(ThreadResult {
+                                id: ThreadId::Camera,
+                                result: Ok(()),
+                            })
+                            .unwrap();
+
+                        let mut inner_config = None;
+
+                        loop {
+                            // Check exit request
+                            if exit_rx.try_recv().is_ok() {
+                                return;
+                            }
+                            // Check for new config
+                            if let Some(cfg) = config.lock().unwrap().take() {
+                                inner_config = Some(cfg);
+                            }
+                            // Check for new controls
+                            if let Some(controls) = controls.lock().unwrap().take() {
+                                for (control, setter) in &controls {
+                                    let control: &KnownCameraControl = control;
+                                    if let Err(e) =
+                                        camera.set_camera_control(*control, setter.clone())
+                                    {
+                                        log::error!("{:?}", e);
+                                    }
+                                }
+                            }
+                            // Get frame
+                            let mut frame = match camera
+                                .poll_frame()
+                                .and_then(|frame| frame.decode_image::<RgbFormat>())
+                            {
+                                Ok(frame) => frame,
                                 Err(e) => {
                                     log::error!("{:?}", e);
                                     result_tx
                                         .send(ThreadResult {
                                             id: ThreadId::Camera,
-                                            result: Err("Could not initialize camera".into()),
+                                            result: Err("Could not poll for frame".into()),
                                         })
                                         .unwrap();
                                     return;
                                 }
                             };
 
-                            if let Err(e) = camera.open_stream() {
-                                log::error!("{:?}", e);
-                                result_tx
-                                    .send(ThreadResult {
-                                        id: ThreadId::Camera,
-                                        result: Err("Could not open stream".into()),
-                                    })
-                                    .unwrap();
-                                return;
-                            };
-
-                            result_tx
-                                .send(ThreadResult {
-                                    id: ThreadId::Camera,
-                                    result: Ok(()),
-                                })
-                                .unwrap();
-
-                            let mut inner_config = None;
-
-                            loop {
-                                // Check exit request
-                                if exit_rx.try_recv().is_ok() {
-                                    return;
+                            if let Some(cfg) = &inner_config {
+                                // Flip
+                                if cfg.flip {
+                                    frame = DynamicImage::ImageRgb8(frame).fliph().into_rgb8();
                                 }
-                                // Check for new config
-                                if let Some(cfg) = config.lock().unwrap().take() {
-                                    inner_config = Some(cfg);
-                                }
-                                // Check for new controls
-                                if let Some(controls) = controls.lock().unwrap().take() {
-                                    for (control, setter) in &controls {
-                                        let control: &KnownCameraControl = control;
-                                        if let Err(e) =
-                                            camera.set_camera_control(*control, setter.clone())
-                                        {
-                                            log::error!("{:?}", e);
-                                        }
-                                    }
-                                }
-                                // Get frame
-                                let mut frame = match camera
-                                    .poll_frame()
-                                    .and_then(|frame| frame.decode_image::<RgbFormat>())
-                                {
-                                    Ok(frame) => frame,
-                                    Err(e) => {
-                                        log::error!("{:?}", e);
-                                        result_tx
-                                            .send(ThreadResult {
-                                                id: ThreadId::Camera,
-                                                result: Err("Could not poll for frame".into()),
-                                            })
-                                            .unwrap();
-                                        return;
-                                    }
-                                };
-
-                                if let Some(cfg) = &inner_config {
-                                    // Flip
-                                    if cfg.flip {
-                                        frame = DynamicImage::ImageRgb8(frame).fliph().into_rgb8();
-                                    }
-                                    // Extract window
-                                    let window = frame
-                                        .view(
-                                            cfg.window.offset.x as u32,
-                                            cfg.window.offset.y as u32,
-                                            cfg.window.size.x as u32,
-                                            cfg.window.size.y as u32,
-                                        )
-                                        .to_image();
-                                    if window_tx.send(window).is_err() {
-                                        return;
-                                    };
-                                }
-                                if frame_tx.send(frame).is_err() {
+                                // Extract window
+                                let window = frame
+                                    .view(
+                                        cfg.window.offset.x as u32,
+                                        cfg.window.offset.y as u32,
+                                        cfg.window.size.x as u32,
+                                        cfg.window.size.y as u32,
+                                    )
+                                    .to_image();
+                                if window_tx.send(window).is_err() {
                                     return;
                                 };
                             }
-                        });
-                        join_handle = Some(hdl);
-                    }
-                    CameraEvent::StopStream => {
-                        if let Some(hdl) = join_handle.take() {
-                            exit_tx.send(Exit {}).ok();
-                            hdl.join().ok();
+                            if frame_tx.send(frame).is_err() {
+                                return;
+                            };
                         }
+                    });
+                    join_handle = Some(hdl);
+                }
+                CameraEvent::StopStream => {
+                    if let Some(hdl) = join_handle.take() {
+                        exit_tx.send(Exit {}).ok();
+                        hdl.join().ok();
                     }
-                    CameraEvent::Config(cfg) => {
-                        *config.lock().unwrap() = Some(cfg);
-                    }
-                    CameraEvent::Controls(ctrls) => {
-                        *controls.lock().unwrap() = Some(ctrls);
-                    }
+                }
+                CameraEvent::Config(cfg) => {
+                    *config.lock().unwrap() = Some(cfg);
+                }
+                CameraEvent::Controls(ctrls) => {
+                    *controls.lock().unwrap() = Some(ctrls);
                 }
             }
         }
+        log::debug!("Camera thread exiting");
     }
 }
