@@ -4,7 +4,7 @@ use crate::config::{
 use biquad::{
     Biquad, Coefficients, DirectForm2Transposed, Hertz, ToHertz, Type, Q_BUTTERWORTH_F32,
 };
-use flume::{Receiver, Sender};
+use flume::{Receiver, Sender, TrySendError};
 use image::{ImageBuffer, Pixel, Rgb};
 use nalgebra::{Dyn, OMatrix, U3, U4};
 use rayon::prelude::*;
@@ -43,7 +43,9 @@ impl SpectrumCalculator {
         while let Ok(window) = self.window_rx.recv() {
             let spectrum = Self::process_window(&window);
 
-            self.spectrum_tx.send(spectrum).unwrap();
+            if let Err(TrySendError::Disconnected(_)) = self.spectrum_tx.try_send(spectrum) {
+                break;
+            }
         }
         log::debug!("SpectrumCalculator thread exiting");
     }

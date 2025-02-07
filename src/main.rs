@@ -75,7 +75,7 @@ fn main() {
 
     let (frame_tx, frame_rx) = flume::unbounded();
     let (window_tx, window_rx) = flume::unbounded();
-    let (spectrum_tx, spectrum_rx) = flume::unbounded();
+    let (spectrum_tx, spectrum_rx) = flume::bounded(1000);
     let (config_tx, config_rx) = flume::unbounded();
     let (result_tx, result_rx) = flume::unbounded();
 
