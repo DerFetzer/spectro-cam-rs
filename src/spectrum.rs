@@ -168,12 +168,13 @@ impl SpectrumContainer {
                 Coefficients::<f32>::from_params(Type::LowPass, fs, f0, Q_BUTTERWORTH_F32).unwrap();
             for mut channel in current_spectrum.row_iter_mut() {
                 let mut biquad = DirectForm2Transposed::<f32>::new(coeffs);
+                // Filter can make value negative so clamp to zero.
                 for sample in channel.iter_mut() {
-                    *sample = biquad.run(*sample);
+                    *sample = biquad.run(*sample).max(0.0);
                 }
                 // Apply filter in reverse to compensate phase error
                 for sample in channel.iter_mut().rev() {
-                    *sample = biquad.run(*sample);
+                    *sample = biquad.run(*sample).max(0.0);
                 }
             }
         }
