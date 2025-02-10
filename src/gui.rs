@@ -5,8 +5,8 @@ use crate::tungsten_halogen::reference_from_filament_temp;
 use crate::{ThreadId, ThreadResult};
 use eframe::{App, CreationContext};
 use egui::{
-    Button, Color32, ColorImage, ComboBox, Context, Rect, RichText, Rounding, Sense, Slider,
-    Stroke, TextureHandle, Vec2,
+    Button, Color32, ColorImage, ComboBox, Context, CornerRadius, Rect, RichText, Sense, Slider,
+    Stroke, TextureHandle, UiBuilder, Vec2,
 };
 use egui_plot::{Legend, Line, MarkerShape, Plot, PlotPoint, Points, Text, VLine};
 use flume::{Receiver, Sender};
@@ -229,10 +229,10 @@ impl SpectrometerGui {
     }
 
     fn peaks_dips_to_plot(
-        filtered_peaks_dips: &Vec<SpectrumPoint>,
+        filtered_peaks_dips: &[SpectrumPoint],
         peaks: bool,
         max_spectrum_value: f32,
-    ) -> (Points, Vec<Text>) {
+    ) -> (Points<'static>, Vec<Text>) {
         let mut peak_dip_labels = Vec::new();
 
         for peak_dip in filtered_peaks_dips {
@@ -303,7 +303,7 @@ impl SpectrometerGui {
                     let image_response = ui.add(image);
 
                     // Paint window rect
-                    ui.with_layer_id(image_response.layer_id, |ui| {
+                    ui.scope_builder(UiBuilder::new().layer_id(image_response.layer_id), |ui| {
                         let painter = ui.painter();
                         let image_rect = image_response.rect;
                         let image_origin = image_rect.min;
@@ -318,8 +318,9 @@ impl SpectrometerGui {
                         );
                         painter.rect_stroke(
                             window_rect,
-                            Rounding::ZERO,
+                            CornerRadius::ZERO,
                             Stroke::new(2., Color32::GOLD),
+                            egui::StrokeKind::Inside,
                         );
                     });
                     ui.separator();
