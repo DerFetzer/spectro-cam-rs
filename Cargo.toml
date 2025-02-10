@@ -11,12 +11,10 @@ simple_logger = "5.0.0"
 egui = { version = "0.31.0", features = ["serde"] }
 eframe = { version = "0.31.0", features = ["persistence"] }
 serde = { version = "1.0", features = ["derive"] }
-serde_with = "3.12.0"
 nokhwa = { version = "0.10.7", features = ["input-v4l", "input-msmf", "input-avfoundation", "output-threaded", "serialize"] }
 rayon = "1.10"
 flume = "0.11.1"
 image = "0.25"
-confy = { version = "0.6.1", default-features = false, features = ["yaml_conf"]}
 nalgebra = "0.33.2"
 biquad = "0.5.0"
 csv = "1.3.1"
