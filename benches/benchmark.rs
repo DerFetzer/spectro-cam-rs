@@ -12,6 +12,13 @@ fn spectrum_calculator_bench(c: &mut Criterion) {
         &window,
         |b, w| b.iter(|| SpectrumCalculator::process_window(w)),
     );
+
+    let window = RgbImage::new(1000, 1);
+    c.bench_with_input(
+        BenchmarkId::new("process_window", "window_1000_1"),
+        &window,
+        |b, w| b.iter(|| SpectrumCalculator::process_window(w)),
+    );
 }
 
 fn spectrum_buffer_bench(c: &mut Criterion) {

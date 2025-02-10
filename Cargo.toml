@@ -12,7 +12,6 @@ egui = { version = "0.31.0", features = ["serde"] }
 eframe = { version = "0.31.0", features = ["persistence"] }
 serde = { version = "1.0", features = ["derive"] }
 nokhwa = { version = "0.10.7", features = ["input-v4l", "input-msmf", "input-avfoundation", "output-threaded", "serialize"] }
-rayon = "1.10"
 flume = "0.11.1"
 image = "0.25"
 nalgebra = "0.33.2"

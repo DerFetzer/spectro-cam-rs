@@ -7,7 +7,6 @@ use biquad::{
 use flume::{Receiver, Sender, TrySendError};
 use image::{ImageBuffer, Pixel, Rgb};
 use nalgebra::{Dyn, OMatrix, U3, U4};
-use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
@@ -55,21 +54,18 @@ impl SpectrumCalculator {
         let rows = window.height();
         let max_value = rows * u8::MAX as u32 * 3;
 
-        let spectrum: SpectrumRgb = window
+        window
             .rows()
-            .par_bridge()
+            //.par_bridge()
             .map(|r| {
                 SpectrumRgb::from_vec(
                     r.flat_map(|p| p.channels().iter().map(|&v| v as f32))
                         .collect::<Vec<f32>>(),
                 )
             })
-            .reduce(
-                || SpectrumRgb::from_element(columns as usize, 0.),
-                |a, b| a + b,
-            )
-            / max_value as f32;
-        spectrum
+            .reduce(|a, b| a + b)
+            .map(|s| s / max_value as f32)
+            .unwrap_or(SpectrumRgb::from_element(columns as usize, 0.))
     }
 }
 
@@ -123,10 +119,11 @@ impl SpectrumContainer {
 
         let mut combined_buffer = self
             .spectrum_buffer
-            .par_iter()
+            .iter()
             .cloned()
-            .reduce(|| SpectrumRgb::from_element(ncols, 0.), |a, b| a + b)
-            / self.spectrum_buffer.len() as f32;
+            .reduce(|a, b| a + b)
+            .map(|s| s / self.spectrum_buffer.len() as f32)
+            .unwrap_or(SpectrumRgb::from_element(ncols, 0.));
 
         combined_buffer.set_row(
             0,
