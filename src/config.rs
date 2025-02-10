@@ -3,7 +3,6 @@ use egui_plot::{Line, PlotPoints};
 use nokhwa::utils::CameraFormat;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
-use winit::dpi::PhysicalSize;
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone, Copy)]
 pub enum Linearize {
@@ -116,7 +115,6 @@ pub struct SpectrumWindow {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
 pub struct ViewConfig {
-    pub window_size: PhysicalSize<u32>,
     pub image_scale: f32,
     pub draw_spectrum_r: bool,
     pub draw_spectrum_g: bool,
@@ -136,7 +134,6 @@ pub struct ViewConfig {
 impl Default for ViewConfig {
     fn default() -> Self {
         Self {
-            window_size: PhysicalSize::new(800, 600),
             image_scale: 0.25,
             draw_spectrum_r: true,
             draw_spectrum_g: true,

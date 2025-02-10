@@ -3,12 +3,14 @@ use crate::config::{GainPresets, Linearize, SpectrometerConfig, SpectrumPoint};
 use crate::spectrum::{SpectrumContainer, SpectrumRgb};
 use crate::tungsten_halogen::reference_from_filament_temp;
 use crate::{ThreadId, ThreadResult};
+use eframe::{App, CreationContext};
 use egui::{
-    Button, Color32, ComboBox, Context, Rect, RichText, Rounding, Sense, Slider, Stroke, TextureId,
-    Vec2,
+    Button, Color32, ColorImage, ComboBox, Context, Rect, RichText, Rounding, Sense, Slider,
+    Stroke, TextureHandle, Vec2,
 };
 use egui_plot::{Legend, Line, MarkerShape, Plot, PlotPoint, Points, Text, VLine};
 use flume::{Receiver, Sender};
+use image::{EncodableLayout, ImageBuffer, Rgb};
 use indexmap::IndexMap;
 use nokhwa::pixel_format::RgbFormat;
 use nokhwa::utils::{
@@ -18,41 +20,48 @@ use nokhwa::utils::{
 use nokhwa::utils::{CameraIndex, RequestedFormat, RequestedFormatType};
 use nokhwa::{query, Camera};
 use std::borrow::BorrowMut;
-use winit::dpi::PhysicalSize;
 
 pub struct SpectrometerGui {
     config: SpectrometerConfig,
     running: bool,
     camera_info: IndexMap<CameraIndex, crate::camera::CameraInfo>,
     camera_controls: Vec<CameraControl>,
-    webcam_texture_id: TextureId,
+    webcam_texture_id: Option<TextureHandle>,
     spectrum_container: SpectrumContainer,
     tungsten_filament_temp: u16,
     camera_config_tx: Sender<CameraEvent>,
     camera_config_change_pending: bool,
     result_rx: Receiver<ThreadResult>,
+    frame_rx: Receiver<ImageBuffer<Rgb<u8>, Vec<u8>>>,
     last_error: Option<ThreadResult>,
 }
 
 impl SpectrometerGui {
     pub fn new(
-        webcam_texture_id: TextureId,
+        cc: &CreationContext<'_>,
         camera_config_tx: Sender<CameraEvent>,
         spectrum_rx: Receiver<SpectrumRgb>,
-        config: SpectrometerConfig,
         result_rx: Receiver<ThreadResult>,
+        frame_rx: Receiver<ImageBuffer<Rgb<u8>, Vec<u8>>>,
     ) -> Self {
+        let config = if let Some(storage) = cc.storage {
+            eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default()
+        } else {
+            Default::default()
+        };
+
         let mut gui = Self {
             config,
             running: false,
             camera_info: Default::default(),
             camera_controls: Default::default(),
-            webcam_texture_id,
+            webcam_texture_id: None,
             spectrum_container: SpectrumContainer::new(spectrum_rx),
             tungsten_filament_temp: 2800,
             camera_config_tx,
             camera_config_change_pending: false,
             result_rx,
+            frame_rx,
             last_error: None,
         };
         gui.query_cameras();
@@ -283,35 +292,38 @@ impl SpectrometerGui {
 
                 ui.separator();
 
-                let texture_size = egui::Vec2::new(
-                    self.config.camera_format.unwrap().width() as f32,
-                    self.config.camera_format.unwrap().height() as f32,
-                );
-                let image_size = texture_size * self.config.view_config.image_scale;
-                let image = egui::Image::from_texture((self.webcam_texture_id, texture_size))
-                    .fit_to_exact_size(image_size);
-                let image_response = ui.add(image);
+                if let Some(webcam_texture_handle) = &self.webcam_texture_id {
+                    let image = egui::Image::from_texture((
+                        webcam_texture_handle.id(),
+                        webcam_texture_handle.size_vec2(),
+                    ))
+                    .fit_to_exact_size(
+                        webcam_texture_handle.size_vec2() * self.config.view_config.image_scale,
+                    );
+                    let image_response = ui.add(image);
 
-                // Paint window rect
-                ui.with_layer_id(image_response.layer_id, |ui| {
-                    let painter = ui.painter();
-                    let image_rect = image_response.rect;
-                    let image_origin = image_rect.min;
-                    let scale = Vec2::new(
-                        image_rect.width() / self.config.camera_format.unwrap().width() as f32,
-                        image_rect.height() / self.config.camera_format.unwrap().height() as f32,
-                    );
-                    let window_rect = Rect::from_min_size(
-                        image_origin + self.config.image_config.window.offset * scale,
-                        self.config.image_config.window.size * scale,
-                    );
-                    painter.rect_stroke(
-                        window_rect,
-                        Rounding::ZERO,
-                        Stroke::new(2., Color32::GOLD),
-                    );
-                });
-                ui.separator();
+                    // Paint window rect
+                    ui.with_layer_id(image_response.layer_id, |ui| {
+                        let painter = ui.painter();
+                        let image_rect = image_response.rect;
+                        let image_origin = image_rect.min;
+                        let scale = Vec2::new(
+                            image_rect.width() / self.config.camera_format.unwrap().width() as f32,
+                            image_rect.height()
+                                / self.config.camera_format.unwrap().height() as f32,
+                        );
+                        let window_rect = Rect::from_min_size(
+                            image_origin + self.config.image_config.window.offset * scale,
+                            self.config.image_config.window.size * scale,
+                        );
+                        painter.rect_stroke(
+                            window_rect,
+                            Rounding::ZERO,
+                            Stroke::new(2., Color32::GOLD),
+                        );
+                    });
+                    ui.separator();
+                }
 
                 // Window config
                 let mut changed = false;
@@ -924,6 +936,18 @@ impl SpectrometerGui {
             ctx.request_repaint();
         }
 
+        if let Ok(webcam_image) = self.frame_rx.try_recv() {
+            let webcam_color_image = ColorImage::from_rgb(
+                [
+                    webcam_image.width() as usize,
+                    webcam_image.height() as usize,
+                ],
+                webcam_image.as_bytes(),
+            );
+            self.webcam_texture_id =
+                Some(ctx.load_texture("webcam_texture", webcam_color_image, Default::default()));
+        }
+
         self.spectrum_container.update(&self.config);
 
         if let Ok(error) = self.result_rx.try_recv() {
@@ -941,11 +965,14 @@ impl SpectrometerGui {
         self.draw_spectrum(ctx);
         self.draw_last_result(ctx);
     }
+}
 
-    pub fn persist_config(&mut self, window_size: PhysicalSize<u32>) {
-        self.config.view_config.window_size = window_size;
-        if let Err(e) = confy::store("spectro-cam-rs", None, self.config.clone()) {
-            log::error!("Could not persist config: {:?}", e);
-        }
+impl App for SpectrometerGui {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.update(ctx);
+    }
+
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(storage, eframe::APP_KEY, &self.config);
     }
 }
