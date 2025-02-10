@@ -20,6 +20,7 @@ use nokhwa::utils::{
 use nokhwa::utils::{CameraIndex, RequestedFormat, RequestedFormatType};
 use nokhwa::{query, Camera};
 use std::borrow::BorrowMut;
+use std::time::Duration;
 
 pub struct SpectrometerGui {
     config: SpectrometerConfig,
@@ -934,7 +935,13 @@ impl SpectrometerGui {
 
     pub fn update(&mut self, ctx: &Context) {
         if self.running {
-            ctx.request_repaint();
+            if let Some(camera_format) = self.config.camera_format {
+                ctx.request_repaint_after(Duration::from_millis(
+                    (1000 / camera_format.frame_rate()).into(),
+                ));
+            } else {
+                ctx.request_repaint();
+            }
         }
 
         if let Ok(webcam_image) = self.frame_rx.try_recv() {
