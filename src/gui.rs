@@ -321,7 +321,7 @@ impl SpectrometerGui {
                             window_rect,
                             CornerRadius::ZERO,
                             Stroke::new(2., Color32::GOLD),
-                            egui::StrokeKind::Inside,
+                            egui::StrokeKind::Middle,
                         );
                     });
                     ui.separator();
