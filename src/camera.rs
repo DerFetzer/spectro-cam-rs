@@ -44,8 +44,10 @@ pub enum CameraEvent {
 
 struct Exit {}
 
+pub type SharedFrameBuffer = Arc<Mutex<Option<ImageBuffer<Rgb<u8>, Vec<u8>>>>>;
+
 pub struct CameraThread {
-    frame_tx: Sender<ImageBuffer<Rgb<u8>, Vec<u8>>>,
+    frame_tx: SharedFrameBuffer,
     window_tx: Sender<ImageBuffer<Rgb<u8>, Vec<u8>>>,
     config_rx: Receiver<CameraEvent>,
     result_tx: Sender<ThreadResult>,
@@ -53,7 +55,7 @@ pub struct CameraThread {
 
 impl CameraThread {
     pub fn new(
-        frame_tx: Sender<ImageBuffer<Rgb<u8>, Vec<u8>>>,
+        frame_tx: SharedFrameBuffer,
         window_tx: Sender<ImageBuffer<Rgb<u8>, Vec<u8>>>,
         config_rx: Receiver<CameraEvent>,
         result_tx: Sender<ThreadResult>,
@@ -180,9 +182,7 @@ impl CameraThread {
                                     return;
                                 };
                             }
-                            if frame_tx.send(frame).is_err() {
-                                return;
-                            };
+                            *frame_tx.lock().expect("Mutex poisoned") = Some(frame);
                         }
                     });
                     join_handle = Some(hdl);

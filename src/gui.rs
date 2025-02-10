@@ -1,4 +1,4 @@
-use crate::camera::{CameraEvent, CameraInfo};
+use crate::camera::{CameraEvent, CameraInfo, SharedFrameBuffer};
 use crate::config::{GainPresets, Linearize, SpectrometerConfig, SpectrumPoint};
 use crate::spectrum::{SpectrumContainer, SpectrumRgb};
 use crate::tungsten_halogen::reference_from_filament_temp;
@@ -10,8 +10,9 @@ use egui::{
 };
 use egui_plot::{Legend, Line, MarkerShape, Plot, PlotPoint, Points, Text, VLine};
 use flume::{Receiver, Sender};
-use image::{EncodableLayout, ImageBuffer, Rgb};
+use image::EncodableLayout;
 use indexmap::IndexMap;
+use log::error;
 use nokhwa::pixel_format::RgbFormat;
 use nokhwa::utils::{
     ApiBackend, CameraControl, CameraFormat, ControlValueDescription, ControlValueSetter,
@@ -33,7 +34,7 @@ pub struct SpectrometerGui {
     camera_config_tx: Sender<CameraEvent>,
     camera_config_change_pending: bool,
     result_rx: Receiver<ThreadResult>,
-    frame_rx: Receiver<ImageBuffer<Rgb<u8>, Vec<u8>>>,
+    frame_rx: SharedFrameBuffer,
     last_error: Option<ThreadResult>,
 }
 
@@ -43,7 +44,7 @@ impl SpectrometerGui {
         camera_config_tx: Sender<CameraEvent>,
         spectrum_rx: Receiver<SpectrumRgb>,
         result_rx: Receiver<ThreadResult>,
-        frame_rx: Receiver<ImageBuffer<Rgb<u8>, Vec<u8>>>,
+        frame_rx: SharedFrameBuffer,
     ) -> Self {
         let config = if let Some(storage) = cc.storage {
             eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default()
@@ -944,16 +945,23 @@ impl SpectrometerGui {
             }
         }
 
-        if let Ok(webcam_image) = self.frame_rx.try_recv() {
-            let webcam_color_image = ColorImage::from_rgb(
-                [
-                    webcam_image.width() as usize,
-                    webcam_image.height() as usize,
-                ],
-                webcam_image.as_bytes(),
-            );
-            self.webcam_texture_id =
-                Some(ctx.load_texture("webcam_texture", webcam_color_image, Default::default()));
+        if let Ok(mut webcam_image) = self.frame_rx.lock() {
+            if let Some(webcam_image) = webcam_image.take() {
+                let webcam_color_image = ColorImage::from_rgb(
+                    [
+                        webcam_image.width() as usize,
+                        webcam_image.height() as usize,
+                    ],
+                    webcam_image.as_bytes(),
+                );
+                self.webcam_texture_id = Some(ctx.load_texture(
+                    "webcam_texture",
+                    webcam_color_image,
+                    Default::default(),
+                ));
+            }
+        } else {
+            error!("Webcam thread poisoned lock");
         }
 
         self.spectrum_container.update(&self.config);

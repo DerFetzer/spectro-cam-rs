@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use spectro_cam_rs::camera::CameraThread;
 use spectro_cam_rs::gui::SpectrometerGui;
 use spectro_cam_rs::init_logging;
@@ -6,7 +8,8 @@ use spectro_cam_rs::spectrum::SpectrumCalculator;
 fn main() -> eframe::Result {
     init_logging();
 
-    let (frame_tx, frame_rx) = flume::unbounded();
+    let frame = Arc::new(Mutex::new(None));
+    let (frame_tx, frame_rx) = (frame.clone(), frame.clone());
     let (window_tx, window_rx) = flume::unbounded();
     let (spectrum_tx, spectrum_rx) = flume::bounded(1000);
     let (config_tx, config_rx) = flume::unbounded();
