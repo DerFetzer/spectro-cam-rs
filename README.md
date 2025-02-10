@@ -1,4 +1,3 @@
-# :warning: **There are some problems left after recent dependency updates.** :warning:
 # spectro-cam-rs
 
 A cross-platform GUI for webcam-based spectrometers.
@@ -25,7 +24,7 @@ I use it with my [i-PhosHD][iphos] low-budget spectrometer.
 
 # Limitations
 
-  - Camera controls do not work on Windows and Mac
+  - Camera controls not tested on Windows and Mac
   - Not tested on Mac
   - Missing documentation
   - No pre-built binaries yet
