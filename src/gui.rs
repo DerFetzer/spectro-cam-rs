@@ -109,17 +109,7 @@ impl SpectrometerGui {
     }
 
     fn start_stream(&mut self) {
-        let requested_format = RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(
-            self.config.camera_format.unwrap(),
-        ));
-        if let Ok(cam) = Camera::new(
-            CameraIndex::Index(self.config.camera_id as u32),
-            requested_format,
-        ) {
-            let raw_controls = Self::get_controls(&cam);
-
-            self.camera_controls = raw_controls;
-        }
+        self.refresh_controls();
         self.spectrum_container.clear_buffer();
         self.send_config();
         self.camera_config_tx
@@ -135,15 +125,43 @@ impl SpectrometerGui {
             .unwrap();
     }
 
-    fn get_controls(cam: &Camera) -> Vec<CameraControl> {
-        cam.camera_controls()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|c| {
-                !c.flag().contains(&KnownCameraControlFlag::ReadOnly)
-                    && !c.flag().contains(&KnownCameraControlFlag::WriteOnly)
-            })
-            .collect()
+    fn refresh_controls(&mut self) {
+        let requested_format = RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(
+            self.config.camera_format.unwrap(),
+        ));
+        match Camera::new(
+            CameraIndex::Index(self.config.camera_id as u32),
+            requested_format,
+        ) {
+            Ok(cam) => {
+                self.camera_controls = cam
+                    .camera_controls()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|c| {
+                        !c.flag().contains(&KnownCameraControlFlag::ReadOnly)
+                            && !c.flag().contains(&KnownCameraControlFlag::WriteOnly)
+                    })
+                    .collect();
+            }
+            Err(e) => {
+                error!("Could not refresh camera controls: {e}");
+            }
+        }
+        if let Ok(cam) = Camera::new(
+            CameraIndex::Index(self.config.camera_id as u32),
+            requested_format,
+        ) {
+            self.camera_controls = cam
+                .camera_controls()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|c| {
+                    !c.flag().contains(&KnownCameraControlFlag::ReadOnly)
+                        && !c.flag().contains(&KnownCameraControlFlag::WriteOnly)
+                })
+                .collect();
+        }
     }
 
     fn stop_stream(&mut self) {
@@ -611,9 +629,16 @@ impl SpectrometerGui {
     }
 
     fn draw_camera_control_window(&mut self, ctx: &Context) {
+        if self.config.view_config.show_camera_control_window {
+            self.refresh_controls();
+        }
         egui::Window::new("Camera Controls")
             .open(&mut self.config.view_config.show_camera_control_window)
             .show(ctx, |ui| {
+                ui.colored_label(
+                    Color32::YELLOW,
+                    "⚠ Opening this window can increase load. ⚠",
+                );
                 let mut changed_controls = vec![];
                 for ctrl in &mut self.camera_controls {
                     let value_setter = match ctrl.value() {
