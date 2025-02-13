@@ -11,5 +11,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Initial release
 
 
-[unreleased]: https://github.com/DerFetzer/spectro-cam-rs/compare/v1.1.1...HEAD
-[0.1.0]: https://github.com/DerFetzer/spectro-cam-rs/releases/tag/v0.1.0
+[unreleased]: https://github.com/DerFetzer/spectro-cam-rs/compare/0.1.0...HEAD
+[0.1.0]: https://github.com/DerFetzer/spectro-cam-rs/releases/tag/0.1.0
