@@ -3793,7 +3793,6 @@ dependencies = [
  "rstest",
  "serde",
  "simple_logger",
- "v4l",
 ]
 
 [[package]]

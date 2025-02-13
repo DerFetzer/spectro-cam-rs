@@ -21,9 +21,6 @@ physical_constants = "0.5.0"
 egui_plot = { version = "0.31.0", features = ["serde"] }
 indexmap = "2.7.1"
 
-[target.'cfg(target_os = "linux")'.dependencies]
-v4l = "0.14"
-
 [dev-dependencies]
 rstest = "0.24"
 approx = "0.5.1"
