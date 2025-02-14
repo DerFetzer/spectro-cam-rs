@@ -1,11 +1,10 @@
+use env_logger::Env;
+
 pub mod camera;
 pub mod config;
 pub mod gui;
 pub mod spectrum;
 pub mod tungsten_halogen;
-
-use log::{set_max_level, LevelFilter};
-use simple_logger::SimpleLogger;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum ThreadId {
@@ -20,6 +19,5 @@ pub struct ThreadResult {
 }
 
 pub fn init_logging() {
-    SimpleLogger::new().init().unwrap();
-    set_max_level(LevelFilter::Info);
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 }

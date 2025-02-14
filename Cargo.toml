@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 log = "^0.4"
-simple_logger = "5.0.0"
+env_logger = "0.11.6"
 egui = { version = "0.31.0", features = ["serde"] }
 eframe = { version = "0.31.0", features = ["persistence"] }
 serde = { version = "1.0", features = ["derive"] }
