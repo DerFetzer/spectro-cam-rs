@@ -6,6 +6,7 @@ use biquad::{
 };
 use flume::{Receiver, Sender, TrySendError};
 use image::{ImageBuffer, Pixel, Rgb};
+use log::trace;
 use nalgebra::{Dyn, OMatrix, U3, U4};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -40,6 +41,7 @@ impl SpectrumCalculator {
 
     pub fn run(&mut self) {
         while let Ok(window) = self.window_rx.recv() {
+            trace!("Got window {}x{}", window.width(), window.height());
             let spectrum = Self::process_window(&window);
 
             if let Err(TrySendError::Disconnected(_)) = self.spectrum_tx.try_send(spectrum) {
@@ -91,7 +93,12 @@ impl SpectrumContainer {
     }
 
     pub fn update(&mut self, config: &SpectrometerConfig) {
-        if let Ok(spectrum) = self.spectrum_rx.try_recv() {
+        while let Ok(spectrum) = self.spectrum_rx.try_recv() {
+            trace!(
+                "Got spectrum with {} columns and {} rows",
+                spectrum.ncols(),
+                spectrum.nrows()
+            );
             self.update_spectrum(spectrum, config);
         }
     }

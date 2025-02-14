@@ -12,7 +12,7 @@ use egui_plot::{Legend, Line, MarkerShape, Plot, PlotPoint, Points, Text, VLine}
 use flume::{Receiver, Sender};
 use image::EncodableLayout;
 use indexmap::IndexMap;
-use log::error;
+use log::{error, trace};
 use nokhwa::pixel_format::RgbFormat;
 use nokhwa::utils::{
     ApiBackend, CameraControl, CameraFormat, ControlValueDescription, ControlValueSetter,
@@ -21,6 +21,7 @@ use nokhwa::utils::{
 use nokhwa::utils::{CameraIndex, RequestedFormat, RequestedFormatType};
 use nokhwa::{query, Camera};
 use std::borrow::BorrowMut;
+use std::cmp::min;
 use std::time::Duration;
 
 pub struct SpectrometerGui {
@@ -239,13 +240,19 @@ impl SpectrometerGui {
     }
 
     fn get_spectrum_line(&self, index: usize) -> Line {
-        Line::new({
-            self.spectrum_container
-                .get_spectrum_channel(index, &self.config)
-                .into_iter()
-                .map(|sp| [sp.wavelength as f64, sp.value as f64])
-                .collect::<Vec<_>>()
-        })
+        let points = self
+            .spectrum_container
+            .get_spectrum_channel(index, &self.config)
+            .into_iter()
+            .map(|sp| [sp.wavelength as f64, sp.value as f64])
+            .collect::<Vec<_>>();
+        trace!(
+            "Got {} points from spectrum for index {}: {:?}",
+            points.len(),
+            index,
+            &points[..min(points.len(), 50)]
+        );
+        Line::new(points)
     }
 
     fn peaks_dips_to_plot(

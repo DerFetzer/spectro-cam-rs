@@ -2,6 +2,7 @@ use crate::config::ImageConfig;
 use crate::{ThreadId, ThreadResult};
 use flume::{Receiver, Sender};
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
+use log::{error, trace};
 use nokhwa::pixel_format::RgbFormat;
 use nokhwa::utils::{
     CameraFormat, CameraIndex, ControlValueSetter, FrameFormat, KnownCameraControl,
@@ -163,6 +164,7 @@ impl CameraThread {
                                     return;
                                 }
                             };
+                            trace!("Got frame from camera");
 
                             if let Some(cfg) = &inner_config {
                                 // Flip
@@ -178,7 +180,8 @@ impl CameraThread {
                                         cfg.window.size.y as u32,
                                     )
                                     .to_image();
-                                if window_tx.send(window).is_err() {
+                                if let Err(e) = window_tx.send(window) {
+                                    error!("Could not send window: {e}");
                                     return;
                                 };
                             }
