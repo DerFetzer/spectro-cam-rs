@@ -11,9 +11,8 @@ env:
 
 jobs:
   build_and_test:
-
     runs-on: ${{ matrix.os }}
-    
+
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macOS-latest]
@@ -21,22 +20,9 @@ jobs:
     steps:
     - if: matrix.os == 'ubuntu-latest'
       run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libspeechd-dev libxkbcommon-dev libssl-dev
+    - uses: davidB/rust-cargo-make@v1
     - uses: actions/checkout@v3
-    - uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        components: clippy
-    
+
     - uses: Swatinem/rust-cache@v1
-    - uses: actions-rs/cargo@v1
-      with:
-        command: build
-        args: --release --all-features
-    - uses: actions-rs/cargo@v1
-      with:
-        command: test
-        args: --all-targets
-    - uses: actions-rs/clippy-check@v1
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        args: --release --all-features
+    - name: Run CI
+      run: cargo make ci-flow

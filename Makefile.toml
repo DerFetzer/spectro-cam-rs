@@ -1,0 +1,10 @@
+[env]
+CARGO_MAKE_RUN_CHECK_FORMAT = true
+CARGO_MAKE_RUN_CLIPPY = true
+CARGO_MAKE_CLIPPY_ARGS = "${CARGO_MAKE_CLIPPY_ALL_FEATURES_WARN}"
+
+# Run tasks on every platform and toolchain
+[tasks.check-format-ci-flow]
+condition = { env_set = ["CARGO_MAKE_RUN_CHECK_FORMAT"] }
+[tasks.clippy-ci-flow]
+condition = { env_set = ["CARGO_MAKE_RUN_CLIPPY"] }
