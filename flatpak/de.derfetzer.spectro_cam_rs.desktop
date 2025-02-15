@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+
+Name=spectro-cam-rs
+Comment=A cross-platform gui for webcam based spectrometers
+Categories=Education;Science;
+Keywords=spectrometer;
+
+Icon=de.derfetzer.spectro_cam_rs
+Exec=spectro-cam-rs
+Terminal=false

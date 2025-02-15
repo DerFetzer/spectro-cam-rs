@@ -2,3 +2,6 @@
 .vscode
 
 /target
+
+.flatpak-builder
+cargo-sources.json

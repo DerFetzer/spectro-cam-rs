@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>de.derfetzer.spectro_cam_rs</id>
+
+  <name>spectro-cam-rs</name>
+  <summary>A cross-platform gui for webcam based spectrometers</summary>
+
+  <url type="homepage">https://github.com/DerFetzer/spectro-cam-rs</url>
+
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+    <control>touch</control>
+  </supports>
+
+  <description>
+    <p>
+      A cross-platform GUI for webcam-based spectrometers.
+      It should be a replacement for the Windows-only Theremino Spectrometer GUI.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">de.derfetzer.spectro_cam_rs.desktop</launchable>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://github.com/DerFetzer/spectro-cam-rs/blob/main/res/screenshot.png</image>
+    </screenshot>
+  </screenshots>
+</component>
