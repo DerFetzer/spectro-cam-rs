@@ -21,8 +21,8 @@ jobs:
     - if: matrix.os == 'ubuntu-latest'
       run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libspeechd-dev libxkbcommon-dev libssl-dev
     - uses: davidB/rust-cargo-make@v1
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
-    - uses: Swatinem/rust-cache@v1
+    - uses: Swatinem/rust-cache@v2
     - name: Run CI
       run: cargo make ci-flow
