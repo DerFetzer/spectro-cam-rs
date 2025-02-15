@@ -10,6 +10,8 @@
   <metadata_license>MIT</metadata_license>
   <project_license>MIT OR Apache-2.0</project_license>
 
+  <content_rating type="oars-1.0" />
+
   <supports>
     <control>pointing</control>
     <control>keyboard</control>
@@ -24,9 +26,14 @@
   </description>
 
   <launchable type="desktop-id">de.derfetzer.spectro_cam_rs.desktop</launchable>
+
   <screenshots>
     <screenshot type="default">
       <image>https://github.com/DerFetzer/spectro-cam-rs/blob/main/res/screenshot.png</image>
     </screenshot>
   </screenshots>
+
+  <releases>
+    <!--auto-generated-->
+  </releases>
 </component>
