@@ -4,4 +4,6 @@
 /target
 
 .flatpak-builder
+flatpak-builder-tools
 cargo-sources.json
+*metainfo.xml

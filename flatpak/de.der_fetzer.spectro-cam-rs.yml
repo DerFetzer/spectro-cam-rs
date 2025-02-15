@@ -1,4 +1,4 @@
-app-id: de.derfetzer.spectro_cam_rs
+app-id: de.der_fetzer.spectro-cam-rs
 runtime: org.freedesktop.Platform
 runtime-version: '24.08'
 sdk: org.freedesktop.Sdk

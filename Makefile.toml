@@ -8,3 +8,120 @@ CARGO_MAKE_CLIPPY_ARGS = "${CARGO_MAKE_CLIPPY_ALL_FEATURES_WARN}"
 condition = { env_set = ["CARGO_MAKE_RUN_CHECK_FORMAT"] }
 [tasks.clippy-ci-flow]
 condition = { env_set = ["CARGO_MAKE_RUN_CLIPPY"] }
+
+
+# Flatpak
+[tasks.flatpak-base]
+cwd = "./flatpak"
+
+[tasks.flatpak-builder-tools-clone]
+extend = "flatpak-base"
+script_runner = "@duckscript"
+script = """
+if not is_path_exists ./flatpak-builder-tools
+    git clone https://github.com/flatpak/flatpak-builder-tools.git
+end
+"""
+
+[tasks.flatpak-builder-tools-poetry-install]
+cwd = "./flatpak/flatpak-builder-tools/cargo"
+command = "poetry"
+args = ["install"]
+dependencies = ["flatpak-builder-tools-clone"]
+
+[tasks.create-cargo-sources]
+cwd = "./flatpak/flatpak-builder-tools/cargo"
+command = "poetry"
+args = ["run", "python3", "./flatpak-cargo-generator.py", "../../../Cargo.lock", "-o", "../../cargo-sources.json"]
+dependencies = ["flatpak-builder-tools-poetry-install"]
+
+[tasks.flatpak-add-flathub]
+command = "flatpak"
+args = ["remote-add", "--if-not-exists", "--user", "flathub", "https://flathub.org/repo/flathub.flatpakrepo"]
+
+[tasks.flatpak-install-builder]
+command = "flatpak"
+args = ["install", "--noninteractive", "-y", "--user", "flathub", "org.flatpak.Builder"]
+dependencies = ["flatpak-add-flathub"]
+
+[tasks.flatpak-install-build-dependencies]
+extend = "flatpak-base"
+script = { file = "install_dependencies.sh" }
+dependencies = ["flatpak-add-flathub"]
+
+[tasks.flatpak-add-releases-to-metainfo]
+extend = "flatpak-base"
+script_runner = "@rust"
+script = '''
+//! ```cargo
+//! [dependencies]
+//! regex = { version = "1.11", default-features = false, features = ["std"] }
+//! ```
+use std::fs::{read_to_string, write};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let changelog_text = read_to_string("../CHANGELOG.md")?;
+
+    let title_re = regex::Regex::new(r"## \[(?<version>.*)\] - (?<date>.*)")?;
+
+    let mut versions = vec![];
+
+    for line in changelog_text.lines() {
+        if let Some(caps) = title_re.captures(line) {
+            let version = caps["version"].to_string();
+            let date = caps["date"].to_string();
+            println!("version: {version} date: {date}");
+            versions.push((version, date))
+        }
+    }
+
+    let metainfo_template = read_to_string("de.der_fetzer.spectro-cam-rs.metainfo_template.xml")?;
+    let mut metainfo_lines = vec![];
+
+    for line in metainfo_template.lines() {
+        metainfo_lines.push(line.to_string());
+        if line.contains("<releases>") {
+            for (version, date) in &versions {
+                metainfo_lines.push(format!("    <release version=\"{version}\" date=\"{date}\"/>"))
+            }
+        }
+    }
+
+    write("de.der_fetzer.spectro-cam-rs.metainfo.xml", metainfo_lines.join("\n"))?;
+
+    Ok(())
+}
+'''
+
+[tasks.flatpak-check-metainfo]
+extend = "flatpak-base"
+command = "flatpak"
+args = ["run", "--command=flatpak-builder-lint", "org.flatpak.Builder", "appstream", "de.der_fetzer.spectro-cam-rs.metainfo.xml"]
+dependencies = ["flatpak-add-releases-to-metainfo"]
+
+[tasks.flatpak-check-manifest]
+extend = "flatpak-base"
+command = "flatpak"
+args = ["run", "--command=flatpak-builder-lint", "org.flatpak.Builder", "manifest", "de.der_fetzer.spectro-cam-rs.yml"]
+dependencies = ["flatpak-install-builder"]
+
+[tasks.flatpak-build-and-install]
+extend = "flatpak-base"
+command = "flatpak-builder"
+args = ["--install", "--force-clean", "--user", "build", "de.der_fetzer.spectro-cam-rs.yml"]
+dependencies = ["create-cargo-sources", "flatpak-add-releases-to-metainfo", "flatpak-check-metainfo", "flatpak-check-manifest", "flatpak-install-builder"]
+
+[tasks.flatpak-deploy]
+extend = "flatpak-base"
+dependencies = ["flatpak-build-and-install"]
+
+[tasks.flatpak-clean]
+extend = "flatpak-base"
+script_runner = "@duckscript"
+script = """
+rm cargo-sources.json
+rm -r ./build
+rm -r ./.flatpak-builder
+rm -r ./.flatpak-builder-tools
+rm de.der_fetzer.spectro-cam-rs.metainfo.xml
+"""

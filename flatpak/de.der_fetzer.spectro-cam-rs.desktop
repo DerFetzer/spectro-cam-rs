@@ -6,6 +6,6 @@ Comment=A cross-platform gui for webcam based spectrometers
 Categories=Education;Science;
 Keywords=spectrometer;
 
-Icon=de.derfetzer.spectro_cam_rs
+Icon=de.der_fetzer.spectro-cam-rs
 Exec=spectro-cam-rs
 Terminal=false
