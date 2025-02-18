@@ -656,6 +656,11 @@ impl SpectrometerGui {
                     )
                     .text("Peaks/Dips Filter Window"),
                 );
+                ui.separator();
+                ui.checkbox(
+                    &mut self.config.view_config.draw_color_polygons,
+                    "Show colors under spectrum",
+                );
             });
     }
 
