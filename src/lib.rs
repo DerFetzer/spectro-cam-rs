@@ -1,6 +1,7 @@
 use env_logger::Env;
 
 pub mod camera;
+pub mod color;
 pub mod config;
 pub mod gui;
 pub mod spectrum;

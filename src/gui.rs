@@ -1,4 +1,5 @@
 use crate::camera::{CameraEvent, CameraInfo, SharedFrameBuffer};
+use crate::color::wavelength_to_color;
 use crate::config::{GainPresets, Linearize, SpectrometerConfig, SpectrumPoint};
 use crate::spectrum::{SpectrumContainer, SpectrumRgb};
 use crate::tungsten_halogen::reference_from_filament_temp;
@@ -8,7 +9,7 @@ use egui::{
     Button, Color32, ColorImage, ComboBox, Context, CornerRadius, Rect, RichText, Sense, Slider,
     Stroke, TextureHandle, UiBuilder, Vec2,
 };
-use egui_plot::{Legend, Line, MarkerShape, Plot, PlotPoint, Points, Text, VLine};
+use egui_plot::{Legend, Line, MarkerShape, Plot, PlotPoint, Points, Polygon, Text, VLine};
 use flume::{Receiver, Sender};
 use image::EncodableLayout;
 use indexmap::IndexMap;
@@ -184,6 +185,11 @@ impl SpectrometerGui {
                         plot_ui.line(self.get_spectrum_line(2).color(Color32::BLUE).name("b"));
                     }
                     if self.config.view_config.draw_spectrum_combined {
+                        if self.config.view_config.draw_color_polygons {
+                            for polygon in self.get_spectrum_color_polygons() {
+                                plot_ui.polygon(polygon);
+                            }
+                        }
                         plot_ui.line(
                             self.get_spectrum_line(3)
                                 .color(Color32::LIGHT_GRAY)
@@ -253,6 +259,24 @@ impl SpectrometerGui {
             &points[..min(points.len(), 50)]
         );
         Line::new(points)
+    }
+
+    fn get_spectrum_color_polygons(&self) -> Vec<Polygon> {
+        self.spectrum_container
+            .get_spectrum_channel(3, &self.config)
+            .as_slice()
+            .windows(2)
+            .map(|w| {
+                Polygon::new(vec![
+                    [w[0].wavelength as f64, 0.0],
+                    [w[0].wavelength as f64, w[0].value as f64],
+                    [w[1].wavelength as f64, w[1].value as f64],
+                    [w[1].wavelength as f64, 0.0],
+                ])
+                .fill_color(wavelength_to_color(w[0].wavelength))
+                .stroke(Stroke::new(0.0, Color32::TRANSPARENT))
+            })
+            .collect()
     }
 
     fn peaks_dips_to_plot(
