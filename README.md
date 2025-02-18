@@ -14,7 +14,7 @@ I use it with my [i-PhosHD][iphos] low-budget spectrometer.
   - Wavelength calibration
   - Per channel gain with presets
   - Linearization
-  - Camera controls (Linux only at the moment)
+  - Camera controls
   - Postprocessing (averaging buffer, low-pass filter, extraction of peaks and dips)
   - Absorption spectrography via zero reference
   - Calibration with imported reference or generated tungsten spectrum
@@ -27,7 +27,6 @@ I use it with my [i-PhosHD][iphos] low-budget spectrometer.
   - Camera controls not tested on Windows and Mac
   - Not tested on Mac
   - Missing documentation
-  - No pre-built binaries yet
 
 # License
 
