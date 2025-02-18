@@ -13,7 +13,7 @@ use egui_plot::{Legend, Line, MarkerShape, Plot, PlotPoint, Points, Polygon, Tex
 use flume::{Receiver, Sender};
 use image::EncodableLayout;
 use indexmap::IndexMap;
-use log::{error, trace};
+use log::{debug, error, trace};
 use nokhwa::pixel_format::RgbFormat;
 use nokhwa::utils::{
     ApiBackend, CameraControl, CameraFormat, ControlValueDescription, ControlValueSetter,
@@ -677,101 +677,57 @@ impl SpectrometerGui {
                 );
                 let mut changed_controls = vec![];
                 for ctrl in &mut self.camera_controls {
-                    let value_setter = match ctrl.value() {
+                    let mut value_setter = None;
+                    match ctrl.value() {
                         ControlValueSetter::Integer(mut value) => {
                             if let ControlValueDescription::IntegerRange {
                                 min,
                                 max,
                                 value: _,
                                 step,
-                                default: _,
+                                default,
                             } = ctrl.description()
                             {
-                                if ui
-                                    .add(
-                                        Slider::new(&mut value, (*min + 1)..=(*max - 1))
-                                            .step_by(*step as f64)
-                                            .text(ctrl.name()),
-                                    )
-                                    .changed()
-                                {
-                                    Some(ControlValueSetter::Integer(value))
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
+                                ui.horizontal(|ui| {
+                                    if ui.button("Reset").clicked() {
+                                        value_setter = Some(ControlValueSetter::Integer(*default));
+                                    }
+                                    if ui
+                                        .add(
+                                            Slider::new(&mut value, (*min + 1)..=(*max - 1))
+                                                .step_by(*step as f64)
+                                                .text(ctrl.name()),
+                                        )
+                                        .changed()
+                                    {
+                                        value_setter = Some(ControlValueSetter::Integer(value));
+                                    }
+                                });
                             }
                         }
                         ControlValueSetter::Boolean(mut value) => {
-                            if let ControlValueDescription::Boolean { .. } = ctrl.description() {
-                                if ui.checkbox(&mut value, ctrl.name()).changed() {
-                                    Some(ControlValueSetter::Boolean(value))
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
+                            if let ControlValueDescription::Boolean { default, .. } =
+                                ctrl.description()
+                            {
+                                ui.horizontal(|ui| {
+                                    if ui.button("Reset").clicked() {
+                                        value_setter = Some(ControlValueSetter::Boolean(*default));
+                                    }
+                                    if ui.checkbox(&mut value, ctrl.name()).changed() {
+                                        value_setter = Some(ControlValueSetter::Boolean(value))
+                                    }
+                                });
                             }
                         }
-                        // TODO: ControlValueDescription::Enum only has integer options no
-                        // description string.
-                        //
-                        //v4l::control::Type::Menu => {
-                        //    let mut changed = false;
-                        //    let items = match ctrl.items.as_ref() {
-                        //        None => continue,
-                        //        Some(items) => items,
-                        //    };
-                        //    let selected_text =
-                        //        match items.iter().find(|&i| i.0 == own_ctrl.value as u32) {
-                        //            None => continue,
-                        //            Some(i) => i.1.to_string(),
-                        //        };
-                        //    ComboBox::from_label(&ctrl.name)
-                        //        .selected_text(selected_text)
-                        //        .show_ui(ui, |ui| {
-                        //            for item in items.iter() {
-                        //                changed |= ui
-                        //                    .selectable_value(
-                        //                        &mut own_ctrl.value,
-                        //                        item.0 as i32,
-                        //                        item.1.to_string(),
-                        //                    )
-                        //                    .changed();
-                        //            }
-                        //        });
-                        //    changed
-                        //}
-                        _ => None,
+                        control => {
+                            debug!("Control that cannot be represented: {control:?}");
+                        }
                     };
                     if let Some(value_setter) = value_setter {
                         changed_controls.push((ctrl.control(), value_setter));
                         self.spectrum_container.clear_buffer();
                     };
                 }
-                // TODO
-                //
-                //let default_button = ui.button("All default");
-                //if default_button.clicked() {
-                //    for ctrl in &mut self.camera_raw_controls {
-                //        let ctrl = match ctrl.downcast_ref::<Description>() {
-                //            None => continue,
-                //            Some(ctrl) => ctrl,
-                //        };
-                //        let own_ctrl =
-                //            match self.camera_controls.iter_mut().find(|c| c.id == ctrl.id) {
-                //                None => continue,
-                //                Some(own_ctrl) => own_ctrl,
-                //            };
-                //
-                //        own_ctrl.value = ctrl.default;
-                //    }
-                //    // Cannot use self.send_config due to mutable borrow in open
-                //    self.camera_config_tx
-                //        .send(CameraEvent::Controls(self.camera_controls.clone()))
-                //        .unwrap();
-                //}
                 if !changed_controls.is_empty() {
                     // Cannot use self.send_config due to mutable borrow in open
                     self.camera_config_tx
