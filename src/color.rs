@@ -1,5 +1,5 @@
 use egui::Color32;
-use palette::{white_point::D65, IntoColor, Srgb, Xyz};
+use palette::{IntoColor, Srgb, Xyz, white_point::D65};
 
 const ALPHA: u8 = 60;
 

@@ -20,7 +20,7 @@ use nokhwa::utils::{
     KnownCameraControlFlag,
 };
 use nokhwa::utils::{CameraIndex, RequestedFormat, RequestedFormatType};
-use nokhwa::{query, Camera};
+use nokhwa::{Camera, query};
 use std::borrow::BorrowMut;
 use std::cmp::min;
 use std::time::Duration;
@@ -962,24 +962,27 @@ impl SpectrometerGui {
             }
         }
 
-        match self.frame_rx.lock() { Ok(mut webcam_image) => {
-            if let Some(webcam_image) = webcam_image.take() {
-                let webcam_color_image = ColorImage::from_rgb(
-                    [
-                        webcam_image.width() as usize,
-                        webcam_image.height() as usize,
-                    ],
-                    webcam_image.as_bytes(),
-                );
-                self.webcam_texture_id = Some(ctx.load_texture(
-                    "webcam_texture",
-                    webcam_color_image,
-                    Default::default(),
-                ));
+        match self.frame_rx.lock() {
+            Ok(mut webcam_image) => {
+                if let Some(webcam_image) = webcam_image.take() {
+                    let webcam_color_image = ColorImage::from_rgb(
+                        [
+                            webcam_image.width() as usize,
+                            webcam_image.height() as usize,
+                        ],
+                        webcam_image.as_bytes(),
+                    );
+                    self.webcam_texture_id = Some(ctx.load_texture(
+                        "webcam_texture",
+                        webcam_color_image,
+                        Default::default(),
+                    ));
+                }
             }
-        } _ => {
-            error!("Webcam thread poisoned lock");
-        }}
+            _ => {
+                error!("Webcam thread poisoned lock");
+            }
+        }
 
         self.spectrum_container.update(&self.config);
 

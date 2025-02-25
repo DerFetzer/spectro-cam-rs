@@ -3,12 +3,12 @@ use crate::{ThreadId, ThreadResult};
 use flume::{Receiver, Sender};
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
 use log::{error, trace};
+use nokhwa::CallbackCamera;
 use nokhwa::pixel_format::RgbFormat;
 use nokhwa::utils::{
     CameraFormat, CameraIndex, ControlValueSetter, FrameFormat, KnownCameraControl,
     RequestedFormat, RequestedFormatType, Resolution,
 };
-use nokhwa::CallbackCamera;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]

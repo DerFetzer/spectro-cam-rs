@@ -2,7 +2,7 @@ use crate::config::{
     Linearize, ReferenceConfig, SpectrometerConfig, SpectrumCalibration, SpectrumPoint,
 };
 use biquad::{
-    Biquad, Coefficients, DirectForm2Transposed, Hertz, ToHertz, Type, Q_BUTTERWORTH_F32,
+    Biquad, Coefficients, DirectForm2Transposed, Hertz, Q_BUTTERWORTH_F32, ToHertz, Type,
 };
 use flume::{Receiver, Sender, TrySendError};
 use image::{ImageBuffer, Pixel, Rgb};
