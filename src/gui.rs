@@ -962,7 +962,7 @@ impl SpectrometerGui {
             }
         }
 
-        if let Ok(mut webcam_image) = self.frame_rx.lock() {
+        match self.frame_rx.lock() { Ok(mut webcam_image) => {
             if let Some(webcam_image) = webcam_image.take() {
                 let webcam_color_image = ColorImage::from_rgb(
                     [
@@ -977,9 +977,9 @@ impl SpectrometerGui {
                     Default::default(),
                 ));
             }
-        } else {
+        } _ => {
             error!("Webcam thread poisoned lock");
-        }
+        }}
 
         self.spectrum_container.update(&self.config);
 
