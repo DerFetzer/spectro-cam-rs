@@ -1,8 +1,8 @@
 use crate::config::ImageConfig;
 use crate::{ThreadId, ThreadResult};
-use flume::{Receiver, Sender};
+use flume::{Receiver, Sender, TrySendError};
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
-use log::{error, trace};
+use log::{error, trace, warn};
 use nokhwa::CallbackCamera;
 use nokhwa::pixel_format::RgbFormat;
 use nokhwa::utils::{
@@ -180,9 +180,15 @@ impl CameraThread {
                                         cfg.window.size.y as u32,
                                     )
                                     .to_image();
-                                if let Err(e) = window_tx.send(window) {
-                                    error!("Could not send window: {e}");
-                                    return;
+                                match window_tx.try_send(window) {
+                                    Ok(_) => {}
+                                    Err(TrySendError::Full(_)) => {
+                                        warn!("Window buffer full. Dropping frame");
+                                    }
+                                    Err(TrySendError::Disconnected(_)) => {
+                                        error!("Window receiver disconnected. Exiting");
+                                        return;
+                                    }
                                 };
                             }
                             *frame_tx.lock().expect("Mutex poisoned") = Some(frame);
