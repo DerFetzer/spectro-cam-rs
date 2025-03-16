@@ -9,8 +9,13 @@ fn main() -> eframe::Result {
     init_logging();
 
     let frame = Arc::new(Mutex::new(None));
+
+    // Image buffer holding the last read frame from the camera. Consumed by the GUI to display the camera feed.
     let (frame_tx, frame_rx) = (frame.clone(), frame.clone());
-    let (window_tx, window_rx) = flume::unbounded();
+    // Channel transporting image buffers from the camera thread to the spectrum calculator thread.
+    // This is bounded to provide backpressure handling. If the spectrum calculator is slower than the
+    // framerate of the camera, frames will be dropped instead of filling up the memory.
+    let (window_tx, window_rx) = flume::bounded(5);
     let (spectrum_tx, spectrum_rx) = flume::bounded(1000);
     let (config_tx, config_rx) = flume::unbounded();
     let (result_tx, result_rx) = flume::unbounded();
