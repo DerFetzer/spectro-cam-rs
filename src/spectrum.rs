@@ -262,7 +262,7 @@ impl SpectrumContainer {
     }
 
     pub fn set_calibration(
-        &mut self,
+        &self,
         calibration: &mut SpectrumCalibration,
         reference_config: &ReferenceConfig,
     ) {
