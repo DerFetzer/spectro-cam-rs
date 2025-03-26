@@ -568,6 +568,7 @@ impl SpectrometerGui {
                 });
 
                 ui.separator();
+                // Reference calibration settings. See readme for more information.
                 let set_calibration_button = ui.add_enabled(
                     self.config.reference_config.reference.is_some()
                         && self.config.spectrum_calibration.scaling.is_none(),

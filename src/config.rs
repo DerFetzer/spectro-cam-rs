@@ -225,6 +225,8 @@ pub struct SpectrumCalibration {
     pub gain_r: f32,
     pub gain_g: f32,
     pub gain_b: f32,
+    /// If reference calibration is applied, this contains the error correcting scaling factor
+    /// for each index. Index corresponding to pixel column in the source image.
     pub scaling: Option<Vec<f32>>,
 }
 
@@ -239,6 +241,10 @@ impl SpectrumCalibration {
             + (index as f32 - self.low.index as f32) * self.get_wavelength_delta()
     }
 
+    /// Returns the reference calibration scaling factor for the given index.
+    ///
+    /// Index means the index in the spectrum from low to high wavelength.
+    /// These indexes correspond to the pixel columns in the source image.
     pub fn get_scaling_factor_from_index(&self, index: usize) -> f32 {
         if let Some(scaling) = self.scaling.as_ref() {
             *scaling.get(index).unwrap_or(&1.)

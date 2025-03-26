@@ -149,6 +149,8 @@ impl SpectrumContainer {
             combined_buffer.row(0).clone_owned(),
             combined_buffer.row(1).clone_owned(),
             combined_buffer.row(2).clone_owned(),
+            // If calibration against a reference is active, scale accordingly.
+            // See "Calibration with imported reference" in the README.
             if config.spectrum_calibration.scaling.is_some() {
                 let mut sum = combined_buffer.row_sum();
                 sum.iter_mut().enumerate().for_each(|(i, v)| {
@@ -261,8 +263,10 @@ impl SpectrumContainer {
             .collect()
     }
 
+    /// Update the scaling factors in `calibration` to make the current spectrum match the
+    /// reference values in `reference_config`.
     pub fn set_calibration(
-        &mut self,
+        &self,
         calibration: &mut SpectrumCalibration,
         reference_config: &ReferenceConfig,
     ) {
