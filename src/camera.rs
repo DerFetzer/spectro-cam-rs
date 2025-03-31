@@ -2,6 +2,7 @@ use crate::config::ImageConfig;
 use crate::{ThreadId, ThreadResult};
 use flume::{Receiver, Sender};
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
+use jiff::Unit;
 use log::{error, trace};
 use nokhwa::CallbackCamera;
 use nokhwa::pixel_format::RgbFormat;
@@ -49,7 +50,7 @@ pub type SharedFrameBuffer = Arc<Mutex<Option<ImageBuffer<Rgb<u8>, Vec<u8>>>>>;
 
 pub struct CameraThread {
     frame_tx: SharedFrameBuffer,
-    window_tx: Sender<ImageBuffer<Rgb<u8>, Vec<u8>>>,
+    window_tx: Sender<(ImageBuffer<Rgb<u8>, Vec<u8>>, jiff::Zoned)>,
     config_rx: Receiver<CameraEvent>,
     result_tx: Sender<ThreadResult>,
 }
@@ -57,7 +58,7 @@ pub struct CameraThread {
 impl CameraThread {
     pub fn new(
         frame_tx: SharedFrameBuffer,
-        window_tx: Sender<ImageBuffer<Rgb<u8>, Vec<u8>>>,
+        window_tx: Sender<(ImageBuffer<Rgb<u8>, Vec<u8>>, jiff::Zoned)>,
         config_rx: Receiver<CameraEvent>,
         result_tx: Sender<ThreadResult>,
     ) -> Self {
@@ -164,6 +165,8 @@ impl CameraThread {
                                     return;
                                 }
                             };
+                            let frame_timestamp =
+                                jiff::Zoned::now().round(Unit::Millisecond).unwrap();
                             trace!("Got frame from camera");
 
                             if let Some(cfg) = &inner_config {
@@ -180,7 +183,7 @@ impl CameraThread {
                                         cfg.window.size.y as u32,
                                     )
                                     .to_image();
-                                if let Err(e) = window_tx.send(window) {
+                                if let Err(e) = window_tx.send((window, frame_timestamp)) {
                                     error!("Could not send window: {e}");
                                     return;
                                 };

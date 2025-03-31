@@ -24,14 +24,14 @@ pub struct SpectrumExportPoint {
 }
 
 pub struct SpectrumCalculator {
-    window_rx: Receiver<ImageBuffer<Rgb<u8>, Vec<u8>>>,
-    spectrum_tx: Sender<SpectrumRgb>,
+    window_rx: Receiver<(ImageBuffer<Rgb<u8>, Vec<u8>>, jiff::Zoned)>,
+    spectrum_tx: Sender<(SpectrumRgb, jiff::Zoned)>,
 }
 
 impl SpectrumCalculator {
     pub fn new(
-        window_rx: Receiver<ImageBuffer<Rgb<u8>, Vec<u8>>>,
-        spectrum_tx: Sender<SpectrumRgb>,
+        window_rx: Receiver<(ImageBuffer<Rgb<u8>, Vec<u8>>, jiff::Zoned)>,
+        spectrum_tx: Sender<(SpectrumRgb, jiff::Zoned)>,
     ) -> Self {
         SpectrumCalculator {
             window_rx,
@@ -40,11 +40,13 @@ impl SpectrumCalculator {
     }
 
     pub fn run(&mut self) {
-        while let Ok(window) = self.window_rx.recv() {
+        while let Ok((window, frame_timestamp)) = self.window_rx.recv() {
             trace!("Got window {}x{}", window.width(), window.height());
             let spectrum = Self::process_window(&window);
 
-            if let Err(TrySendError::Disconnected(_)) = self.spectrum_tx.try_send(spectrum) {
+            if let Err(TrySendError::Disconnected(_)) =
+                self.spectrum_tx.try_send((spectrum, frame_timestamp))
+            {
                 break;
             }
         }
@@ -73,18 +75,23 @@ impl SpectrumCalculator {
 
 pub struct SpectrumContainer {
     spectrum: Spectrum,
-    spectrum_buffer: VecDeque<SpectrumRgb>,
+    spectrum_buffer: VecDeque<(SpectrumRgb, jiff::Zoned)>,
     zero_reference: Option<Spectrum>,
-    spectrum_rx: Receiver<SpectrumRgb>,
+    spectrum_rx: Receiver<(SpectrumRgb, jiff::Zoned)>,
+    json_spectrum_tx: Sender<String>,
 }
 
 impl SpectrumContainer {
-    pub fn new(spectrum_rx: Receiver<SpectrumRgb>) -> Self {
+    pub fn new(
+        spectrum_rx: Receiver<(SpectrumRgb, jiff::Zoned)>,
+        json_spectrum_tx: Sender<String>,
+    ) -> Self {
         SpectrumContainer {
             spectrum: Spectrum::zeros(0),
             spectrum_buffer: VecDeque::with_capacity(100),
             zero_reference: None,
             spectrum_rx,
+            json_spectrum_tx,
         }
     }
 
@@ -93,21 +100,36 @@ impl SpectrumContainer {
     }
 
     pub fn update(&mut self, config: &SpectrometerConfig) {
-        while let Ok(spectrum) = self.spectrum_rx.try_recv() {
+        while let Ok((spectrum, timestamp)) = self.spectrum_rx.try_recv() {
             trace!(
                 "Got spectrum with {} columns and {} rows",
                 spectrum.ncols(),
                 spectrum.nrows()
             );
-            self.update_spectrum(spectrum, config);
+            self.update_spectrum(spectrum, timestamp, config);
+
+            // HACK. This should really not happen on the GUI thread. But that also goes for
+            // the entire spectrum computation. All of this should ideally be moved to a
+            // spectrum worker thread that would work even if the program was running headless.
+            match self.to_json_with_timestamps(&config.spectrum_calibration) {
+                Ok(json) => {
+                    let _ = self.json_spectrum_tx.try_send(json);
+                }
+                Err(e) => log::error!("Failed to serialize JSON spectrum: {:?}", e),
+            }
         }
     }
 
-    pub fn update_spectrum(&mut self, mut spectrum: SpectrumRgb, config: &SpectrometerConfig) {
+    pub fn update_spectrum(
+        &mut self,
+        mut spectrum: SpectrumRgb,
+        timestamp: jiff::Zoned,
+        config: &SpectrometerConfig,
+    ) {
         let ncols = spectrum.ncols();
 
         // Clear buffer and zero reference on dimension change
-        if let Some(s) = self.spectrum_buffer.front() {
+        if let Some((s, _timestamp)) = self.spectrum_buffer.front() {
             if s.ncols() != ncols {
                 self.spectrum_buffer.clear();
                 self.zero_reference = None;
@@ -120,13 +142,14 @@ impl SpectrumContainer {
                 .for_each(|v| *v = config.spectrum_calibration.linearize.linearize(*v));
         }
 
-        self.spectrum_buffer.push_front(spectrum);
+        self.spectrum_buffer.push_front((spectrum, timestamp));
         self.spectrum_buffer
             .truncate(config.postprocessing_config.spectrum_buffer_size);
 
         let mut combined_buffer = self
             .spectrum_buffer
             .iter()
+            .map(|(spectrum, _timestamp)| spectrum)
             .cloned()
             .reduce(|a, b| a + b)
             .map(|s| s / self.spectrum_buffer.len() as f32)
@@ -316,6 +339,56 @@ impl SpectrumContainer {
         }
     }
 
+    /// Return the spectrum as a JSON string.
+    ///
+    /// The response contains start and end timestamps denoting the time window of
+    /// the camera frames used to calculate the spectrum.
+    pub fn to_json_with_timestamps(
+        &self,
+        calibration: &SpectrumCalibration,
+    ) -> Result<String, &'static str> {
+        #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy, Default)]
+        pub struct SpectrumPoint {
+            pub wavelength: f32,
+            pub value: f32,
+        }
+        #[derive(serde::Serialize)]
+        struct SpectrumJson {
+            start: jiff::Zoned,
+            end: jiff::Zoned,
+            spectrum: Vec<SpectrumPoint>,
+        }
+        let start = self
+            .spectrum_buffer
+            .back()
+            .map(|(_, timestamp)| timestamp)
+            .cloned()
+            .ok_or("No spectrum data available")?;
+        let end = self
+            .spectrum_buffer
+            .front()
+            .map(|(_, timestamp)| timestamp)
+            .cloned()
+            .expect("Back implies front");
+
+        let spectrum_export_points = self.spectrum_to_point_vec(calibration);
+        let spectrum_points = spectrum_export_points
+            .into_iter()
+            .map(|p| SpectrumPoint {
+                wavelength: p.wavelength,
+                value: p.sum,
+            })
+            .collect();
+
+        let spectrum_json = SpectrumJson {
+            start,
+            end,
+            spectrum: spectrum_points,
+        };
+
+        serde_json::to_string(&spectrum_json).map_err(|_| "Failed to serialize spectrum to JSON")
+    }
+
     fn spectrum_to_point_vec(&self, calibration: &SpectrumCalibration) -> Vec<SpectrumExportPoint> {
         self.spectrum
             .column_iter()
@@ -346,7 +419,8 @@ mod tests {
     #[fixture]
     fn spectrum_container() -> SpectrumContainer {
         let (_tx, rx) = flume::unbounded();
-        SpectrumContainer::new(rx)
+        let (json_tx, _json_rx) = flume::unbounded();
+        SpectrumContainer::new(rx, json_tx)
     }
 
     #[fixture]
@@ -356,13 +430,26 @@ mod tests {
 
     #[rstest]
     fn buffer_size(mut spectrum_container: SpectrumContainer, config: SpectrometerConfig) {
-        spectrum_container.update_spectrum(SpectrumRgb::from_element(1000, 0.5), &config);
-        spectrum_container.update_spectrum(SpectrumRgb::from_element(1000, 0.75), &config);
+        let now = jiff::Zoned::now();
+        spectrum_container.update_spectrum(
+            SpectrumRgb::from_element(1000, 0.5),
+            now.clone(),
+            &config,
+        );
+        spectrum_container.update_spectrum(
+            SpectrumRgb::from_element(1000, 0.75),
+            now.clone(),
+            &config,
+        );
 
         assert_eq!(spectrum_container.spectrum_buffer.len(), 2);
 
         for _ in 0..100 {
-            spectrum_container.update_spectrum(SpectrumRgb::from_element(1000, 0.5), &config);
+            spectrum_container.update_spectrum(
+                SpectrumRgb::from_element(1000, 0.5),
+                now.clone(),
+                &config,
+            );
             assert!(
                 spectrum_container.spectrum_buffer.len()
                     <= config.postprocessing_config.spectrum_buffer_size
@@ -380,7 +467,8 @@ mod tests {
         mut spectrum_container: SpectrumContainer,
         config: SpectrometerConfig,
     ) {
-        spectrum_container.update_spectrum(SpectrumRgb::from_element(1000, 0.5), &config);
+        let now = jiff::Zoned::now();
+        spectrum_container.update_spectrum(SpectrumRgb::from_element(1000, 0.5), now, &config);
 
         assert_eq!(spectrum_container.get_spectrum_max_value(), Some(0.5));
     }

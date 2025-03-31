@@ -5,6 +5,7 @@ pub mod color;
 pub mod config;
 pub mod gui;
 pub mod spectrum;
+pub mod spectrum_feed_server;
 pub mod tungsten_halogen;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
