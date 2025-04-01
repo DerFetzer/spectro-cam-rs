@@ -22,6 +22,22 @@ I use it with my [i-PhosHD][iphos] low-budget spectrometer.
   - Multi-core support
   - Dark theme
 
+## Calibration with imported reference or generated tungsten spectrum
+
+This feature allows using a known spectrum to calibrate the output of your spectrometer.
+This could correct for errors in your spectrometer, and make it output more accurate measurements.
+
+First, a reference spectrum is loaded. The reference can be loaded from a CSV file, but spectro-cam
+can also generate a tungsten filament spectrum directly in the program. The reference represents
+what the spectrometer *should* output when pointed at a light source known to have this spectrum.
+
+With the reference loaded, point the spectrometer at a light source with the known reference
+spectrum. Let the readings stabilize and then click "Set Reference as Calibration".
+
+This computes the error between the measured spectrum and the reference spectrum.
+This yields an error correcting scaling factor for each wavelength that is applied to future
+readings until "Delete Calibration" is clicked.
+
 # Limitations
 
   - Camera controls not tested on Windows and Mac
