@@ -1,3 +1,4 @@
+use crate::Timestamped;
 use crate::config::ImageConfig;
 use crate::{ThreadId, ThreadResult};
 use flume::{Receiver, Sender};
@@ -50,7 +51,7 @@ pub type SharedFrameBuffer = Arc<Mutex<Option<ImageBuffer<Rgb<u8>, Vec<u8>>>>>;
 
 pub struct CameraThread {
     frame_tx: SharedFrameBuffer,
-    window_tx: Sender<(ImageBuffer<Rgb<u8>, Vec<u8>>, jiff::Zoned)>,
+    window_tx: Sender<Timestamped<ImageBuffer<Rgb<u8>, Vec<u8>>>>,
     config_rx: Receiver<CameraEvent>,
     result_tx: Sender<ThreadResult>,
 }
@@ -58,7 +59,7 @@ pub struct CameraThread {
 impl CameraThread {
     pub fn new(
         frame_tx: SharedFrameBuffer,
-        window_tx: Sender<(ImageBuffer<Rgb<u8>, Vec<u8>>, jiff::Zoned)>,
+        window_tx: Sender<Timestamped<ImageBuffer<Rgb<u8>, Vec<u8>>>>,
         config_rx: Receiver<CameraEvent>,
         result_tx: Sender<ThreadResult>,
     ) -> Self {
@@ -128,6 +129,8 @@ impl CameraThread {
 
                         let mut inner_config = None;
 
+                        let mut previous_frame_timestamp =
+                            jiff::Zoned::now().round(Unit::Millisecond).unwrap();
                         loop {
                             // Check exit request
                             if exit_rx.try_recv().is_ok() {
@@ -165,8 +168,14 @@ impl CameraThread {
                                     return;
                                 }
                             };
-                            let frame_timestamp =
+                            // A timestamp guaranteed to be after the last photon included in the frame
+                            // hit the camera sensor
+                            let frame_end_timestamp =
                                 jiff::Zoned::now().round(Unit::Millisecond).unwrap();
+                            // A timestamp most likely before the first photon included in the frame
+                            // hit the camera sensor.
+                            let frame_start_timestamp = previous_frame_timestamp.clone();
+                            previous_frame_timestamp = frame_end_timestamp.clone();
                             trace!("Got frame from camera");
 
                             if let Some(cfg) = &inner_config {
@@ -183,7 +192,12 @@ impl CameraThread {
                                         cfg.window.size.y as u32,
                                     )
                                     .to_image();
-                                if let Err(e) = window_tx.send((window, frame_timestamp)) {
+                                let timed_window = Timestamped {
+                                    start: frame_start_timestamp,
+                                    end: frame_end_timestamp,
+                                    data: window,
+                                };
+                                if let Err(e) = window_tx.send(timed_window) {
                                     error!("Could not send window: {e}");
                                     return;
                                 };

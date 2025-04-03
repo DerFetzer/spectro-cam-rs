@@ -23,12 +23,13 @@ fn spectrum_calculator_bench(c: &mut Criterion) {
 
 fn spectrum_buffer_bench(c: &mut Criterion) {
     let (_tx, rx) = flume::unbounded();
-    let mut sc = SpectrumContainer::new(rx);
+    let (json_tx, _rx) = flume::unbounded();
+    let mut sc = SpectrumContainer::new(rx, json_tx);
 
     c.bench_function("update_spectrum_default", |b| {
         let config = SpectrometerConfig::default();
         b.iter(|| {
-            let s = SpectrumRgb::from_element(1000, 0.5);
+            let s = timed(SpectrumRgb::from_element(1000, 0.5));
             sc.update_spectrum(black_box(s), &config);
         });
     });
@@ -37,7 +38,7 @@ fn spectrum_buffer_bench(c: &mut Criterion) {
         let mut config = SpectrometerConfig::default();
         config.postprocessing_config.spectrum_filter_active = true;
         b.iter(|| {
-            let s = SpectrumRgb::from_element(1000, 0.5);
+            let s = timed(SpectrumRgb::from_element(1000, 0.5));
             sc.update_spectrum(black_box(s), &config);
         });
     });
@@ -46,14 +47,14 @@ fn spectrum_buffer_bench(c: &mut Criterion) {
         let mut config = SpectrometerConfig::default();
         config.spectrum_calibration.linearize = Linearize::Rec601;
         b.iter(|| {
-            let s = SpectrumRgb::from_element(1000, 0.5);
+            let s = timed(SpectrumRgb::from_element(1000, 0.5));
             sc.update_spectrum(black_box(s), &config);
         });
     });
 
     sc.clear_buffer();
     sc.update_spectrum(
-        SpectrumRgb::from_fn(1000, |_, j| (j % 20) as f32),
+        timed(SpectrumRgb::from_fn(1000, |_, j| (j % 20) as f32)),
         &SpectrometerConfig::default(),
     );
 
@@ -83,6 +84,15 @@ fn config_bench(c: &mut Criterion) {
             rc.get_value_at_wavelength(black_box(851.75));
         });
     });
+}
+
+fn timed<T>(data: T) -> spectro_cam_rs::Timestamped<T> {
+    let now = jiff::Zoned::now();
+    spectro_cam_rs::Timestamped {
+        start: now.clone(),
+        end: now.clone(),
+        data,
+    }
 }
 
 criterion_group!(

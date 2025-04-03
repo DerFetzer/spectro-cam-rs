@@ -20,6 +20,15 @@ pub struct ThreadResult {
     pub result: Result<(), String>,
 }
 
+/// Wrapper struct to hold arbitrary data with a start and end timestamp
+/// denoting the time the data was captured during.
+#[derive(Debug)]
+pub struct Timestamped<T> {
+    pub start: jiff::Zoned,
+    pub end: jiff::Zoned,
+    pub data: T,
+}
+
 pub fn init_logging() {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 }
