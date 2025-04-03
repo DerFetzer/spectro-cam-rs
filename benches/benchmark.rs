@@ -87,10 +87,10 @@ fn config_bench(c: &mut Criterion) {
 }
 
 fn timed<T>(data: T) -> spectro_cam_rs::Timestamped<T> {
-    let now = jiff::Zoned::now();
+    let now = std::time::SystemTime::now();
     spectro_cam_rs::Timestamped {
         start: now.clone(),
-        end: now.clone(),
+        end: now,
         data,
     }
 }

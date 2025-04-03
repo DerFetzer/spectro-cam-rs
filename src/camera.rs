@@ -3,7 +3,6 @@ use crate::config::ImageConfig;
 use crate::{ThreadId, ThreadResult};
 use flume::{Receiver, Sender};
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
-use jiff::Unit;
 use log::{error, trace};
 use nokhwa::CallbackCamera;
 use nokhwa::pixel_format::RgbFormat;
@@ -12,6 +11,7 @@ use nokhwa::utils::{
     RequestedFormat, RequestedFormatType, Resolution,
 };
 use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 
 #[derive(Debug, Clone)]
 pub struct CameraInfo {
@@ -129,8 +129,7 @@ impl CameraThread {
 
                         let mut inner_config = None;
 
-                        let mut previous_frame_timestamp =
-                            jiff::Zoned::now().round(Unit::Millisecond).unwrap();
+                        let mut previous_frame_timestamp = SystemTime::now();
                         loop {
                             // Check exit request
                             if exit_rx.try_recv().is_ok() {
@@ -170,12 +169,11 @@ impl CameraThread {
                             };
                             // A timestamp guaranteed to be after the last photon included in the frame
                             // hit the camera sensor
-                            let frame_end_timestamp =
-                                jiff::Zoned::now().round(Unit::Millisecond).unwrap();
+                            let frame_end_timestamp = SystemTime::now();
                             // A timestamp most likely before the first photon included in the frame
                             // hit the camera sensor.
-                            let frame_start_timestamp = previous_frame_timestamp.clone();
-                            previous_frame_timestamp = frame_end_timestamp.clone();
+                            let frame_start_timestamp = previous_frame_timestamp;
+                            previous_frame_timestamp = frame_end_timestamp;
                             trace!("Got frame from camera");
 
                             if let Some(cfg) = &inner_config {

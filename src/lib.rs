@@ -24,8 +24,8 @@ pub struct ThreadResult {
 /// denoting the time the data was captured during.
 #[derive(Debug)]
 pub struct Timestamped<T> {
-    pub start: jiff::Zoned,
-    pub end: jiff::Zoned,
+    pub start: std::time::SystemTime,
+    pub end: std::time::SystemTime,
     pub data: T,
 }
 

@@ -7,10 +7,12 @@ use biquad::{
 };
 use flume::{Receiver, Sender, TrySendError};
 use image::{ImageBuffer, Pixel, Rgb};
+use jiff::Unit;
 use log::trace;
 use nalgebra::{Dyn, OMatrix, U3, U4};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use std::time::SystemTime;
 
 pub type SpectrumRgb = OMatrix<f32, U3, Dyn>;
 pub type Spectrum = OMatrix<f32, U4, Dyn>;
@@ -368,18 +370,23 @@ impl SpectrumContainer {
             spectrum: Vec<SpectrumPoint>,
         }
 
+        let to_rfc3339 = |t: SystemTime| {
+            jiff::Zoned::try_from(t)
+                .expect("Unreasonable system clock time")
+                .round(Unit::Millisecond)
+                .unwrap()
+        };
+
         let start = self
             .spectrum_buffer
             .back()
-            .map(|spectrum| &spectrum.start)
-            .cloned()
+            .map(|spectrum| to_rfc3339(spectrum.start))
             .ok_or("No spectrum data available")?;
         let end = self
             .spectrum_buffer
             .front()
-            .map(|spectrum| &spectrum.end)
-            .cloned()
-            .expect("Back implies front");
+            .map(|spectrum| to_rfc3339(spectrum.end))
+            .expect("spectrum_buffer back presence implies front presence");
 
         let spectrum_export_points = self.spectrum_to_point_vec(calibration);
         let spectrum_points = spectrum_export_points
@@ -471,10 +478,10 @@ mod tests {
     }
 
     fn timed<T>(data: T) -> Timestamped<T> {
-        let now = jiff::Zoned::now();
+        let now = std::time::SystemTime::now();
         Timestamped {
             start: now.clone(),
-            end: now.clone(),
+            end: now,
             data,
         }
     }
