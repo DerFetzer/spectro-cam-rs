@@ -1,3 +1,4 @@
+use crate::Timestamped;
 use crate::config::ImageConfig;
 use crate::{ThreadId, ThreadResult};
 use flume::{Receiver, Sender};
@@ -10,6 +11,7 @@ use nokhwa::utils::{
     RequestedFormat, RequestedFormatType, Resolution,
 };
 use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 
 #[derive(Debug, Clone)]
 pub struct CameraInfo {
@@ -49,7 +51,7 @@ pub type SharedFrameBuffer = Arc<Mutex<Option<ImageBuffer<Rgb<u8>, Vec<u8>>>>>;
 
 pub struct CameraThread {
     frame_tx: SharedFrameBuffer,
-    window_tx: Sender<ImageBuffer<Rgb<u8>, Vec<u8>>>,
+    window_tx: Sender<Timestamped<ImageBuffer<Rgb<u8>, Vec<u8>>>>,
     config_rx: Receiver<CameraEvent>,
     result_tx: Sender<ThreadResult>,
 }
@@ -57,7 +59,7 @@ pub struct CameraThread {
 impl CameraThread {
     pub fn new(
         frame_tx: SharedFrameBuffer,
-        window_tx: Sender<ImageBuffer<Rgb<u8>, Vec<u8>>>,
+        window_tx: Sender<Timestamped<ImageBuffer<Rgb<u8>, Vec<u8>>>>,
         config_rx: Receiver<CameraEvent>,
         result_tx: Sender<ThreadResult>,
     ) -> Self {
@@ -127,6 +129,7 @@ impl CameraThread {
 
                         let mut inner_config = None;
 
+                        let mut previous_frame_timestamp = SystemTime::now();
                         loop {
                             // Check exit request
                             if exit_rx.try_recv().is_ok() {
@@ -164,6 +167,13 @@ impl CameraThread {
                                     return;
                                 }
                             };
+                            // A timestamp guaranteed to be after the last photon included in the frame
+                            // hit the camera sensor
+                            let frame_end_timestamp = SystemTime::now();
+                            // A timestamp most likely before the first photon included in the frame
+                            // hit the camera sensor.
+                            let frame_start_timestamp = previous_frame_timestamp;
+                            previous_frame_timestamp = frame_end_timestamp;
                             trace!("Got frame from camera");
 
                             if let Some(cfg) = &inner_config {
@@ -180,7 +190,12 @@ impl CameraThread {
                                         cfg.window.size.y as u32,
                                     )
                                     .to_image();
-                                if let Err(e) = window_tx.send(window) {
+                                let timed_window = Timestamped {
+                                    start: frame_start_timestamp,
+                                    end: frame_end_timestamp,
+                                    data: window,
+                                };
+                                if let Err(e) = window_tx.send(timed_window) {
                                     error!("Could not send window: {e}");
                                     return;
                                 };

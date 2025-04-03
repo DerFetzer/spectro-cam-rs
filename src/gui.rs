@@ -1,7 +1,7 @@
 use crate::camera::{CameraEvent, CameraInfo, SharedFrameBuffer};
 use crate::color::wavelength_to_color;
 use crate::config::{GainPresets, Linearize, SpectrometerConfig, SpectrumPoint};
-use crate::spectrum::{SpectrumContainer, SpectrumRgb};
+use crate::spectrum::SpectrumContainer;
 use crate::tungsten_halogen::reference_from_filament_temp;
 use crate::{ThreadId, ThreadResult};
 use eframe::{App, CreationContext};
@@ -44,7 +44,7 @@ impl SpectrometerGui {
     pub fn new(
         cc: &CreationContext<'_>,
         camera_config_tx: Sender<CameraEvent>,
-        spectrum_rx: Receiver<SpectrumRgb>,
+        spectrum_container: SpectrumContainer,
         result_rx: Receiver<ThreadResult>,
         frame_rx: SharedFrameBuffer,
     ) -> Self {
@@ -60,7 +60,7 @@ impl SpectrometerGui {
             camera_info: Default::default(),
             camera_controls: Default::default(),
             webcam_texture_id: None,
-            spectrum_container: SpectrumContainer::new(spectrum_rx),
+            spectrum_container,
             tungsten_filament_temp: 2800,
             camera_config_tx,
             camera_config_change_pending: false,
