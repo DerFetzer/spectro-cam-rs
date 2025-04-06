@@ -2,7 +2,6 @@ use crate::camera::{CameraEvent, CameraInfo, SharedFrameBuffer};
 use crate::color::wavelength_to_color;
 use crate::config::{GainPresets, Linearize, SpectrometerConfig, SpectrumPoint};
 use crate::spectrum::{SpectrumContainer, SpectrumRgb};
-use crate::tungsten_halogen::reference_from_filament_temp;
 use crate::{ThreadId, ThreadResult};
 use eframe::{App, CreationContext};
 use egui::{
@@ -25,14 +24,16 @@ use std::borrow::BorrowMut;
 use std::cmp::min;
 use std::time::Duration;
 
+mod import_export;
+
 pub struct SpectrometerGui {
     config: SpectrometerConfig,
+    import_export_window: import_export::ImportExportWindow,
     running: bool,
     camera_info: IndexMap<CameraIndex, crate::camera::CameraInfo>,
     camera_controls: Vec<CameraControl>,
     webcam_texture_id: Option<TextureHandle>,
     spectrum_container: SpectrumContainer,
-    tungsten_filament_temp: u16,
     camera_config_tx: Sender<CameraEvent>,
     camera_config_change_pending: bool,
     result_rx: Receiver<ThreadResult>,
@@ -56,12 +57,12 @@ impl SpectrometerGui {
 
         let mut gui = Self {
             config,
+            import_export_window: import_export::ImportExportWindow::new(),
             running: false,
             camera_info: Default::default(),
             camera_controls: Default::default(),
             webcam_texture_id: None,
             spectrum_container: SpectrumContainer::new(spectrum_rx),
-            tungsten_filament_temp: 2800,
             camera_config_tx,
             camera_config_change_pending: false,
             result_rx,
@@ -738,101 +739,17 @@ impl SpectrometerGui {
             });
     }
 
-    fn draw_import_export_window(&mut self, ctx: &Context) {
-        egui::Window::new("Import/Export")
-            .open(&mut self.config.view_config.show_import_export_window)
-            .show(ctx, |ui| {
-                ui.text_edit_singleline(&mut self.config.import_export_config.path);
-                ui.separator();
-                let import_reference_button = ui.button("Import Reference CSV");
-                if import_reference_button.clicked() {
-                    match csv::Reader::from_path(&self.config.import_export_config.path)
-                        .and_then(|mut r| r.deserialize().collect())
-                    {
-                        Ok(r) => {
-                            self.config.reference_config.reference = Some(r);
-                            self.last_error = Some(ThreadResult {
-                                id: ThreadId::Main,
-                                result: Ok(()),
-                            });
-                        }
-                        Err(e) => {
-                            self.last_error = Some(ThreadResult {
-                                id: ThreadId::Main,
-                                result: Err(e.to_string()),
-                            });
-                        }
-                    };
-                }
-                let export_reference_button = ui.add_enabled(
-                    self.config.reference_config.reference.is_some(),
-                    Button::new("Export Reference CSV"),
-                );
-                if export_reference_button.clicked() {
-                    let writer = csv::Writer::from_path(&self.config.import_export_config.path);
-                    match writer {
-                        Ok(mut writer) => {
-                            for p in self.config.reference_config.reference.as_ref().unwrap() {
-                                writer.serialize(p).unwrap();
-                            }
-                            writer.flush().unwrap();
-                        }
-                        Err(e) => {
-                            self.last_error = Some(ThreadResult {
-                                id: ThreadId::Main,
-                                result: Err(e.to_string()),
-                            })
-                        }
-                    }
-                }
-                let delete_button = ui.add_enabled(
-                    self.config.reference_config.reference.is_some(),
-                    Button::new("Delete Reference"),
-                );
-                if delete_button.clicked() {
-                    self.config.reference_config.reference = None;
-                }
-                ui.separator();
-                let generate_reference_button =
-                    ui.button("Generate Reference From Tungsten Temperature");
-                if generate_reference_button.clicked() {
-                    self.config.reference_config.reference =
-                        Some(reference_from_filament_temp(self.tungsten_filament_temp));
-                }
-                ui.add(
-                    Slider::new(&mut self.tungsten_filament_temp, 1000..=3500)
-                        .text("Tungsten Temperature"),
-                );
-                ui.separator();
-                let export_button = ui.add(Button::new("Export Spectrum"));
-                if export_button.clicked() {
-                    match self.spectrum_container.write_to_csv(
-                        &self.config.import_export_config.path.clone(),
-                        &self.config.spectrum_calibration,
-                    ) {
-                        Ok(()) => {
-                            self.last_error = Some(ThreadResult {
-                                id: ThreadId::Main,
-                                result: Ok(()),
-                            });
-                        }
-                        Err(e) => {
-                            self.last_error = Some(ThreadResult {
-                                id: ThreadId::Main,
-                                result: Err(e),
-                            });
-                        }
-                    }
-                }
-            });
-    }
-
     fn draw_windows(&mut self, ctx: &Context) {
         self.draw_camera_window(ctx);
         self.draw_calibration_window(ctx);
         self.draw_postprocessing_window(ctx);
         self.draw_camera_control_window(ctx);
-        self.draw_import_export_window(ctx);
+        if let Some(last_error) =
+            self.import_export_window
+                .update(ctx, &mut self.config, &mut self.spectrum_container)
+        {
+            self.last_error = Some(last_error);
+        }
     }
 
     fn draw_connection_panel(&mut self, ctx: &Context) {
