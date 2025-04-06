@@ -12,22 +12,21 @@ use egui_plot::{Legend, Line, MarkerShape, Plot, PlotPoint, Points, Polygon, Tex
 use flume::{Receiver, Sender};
 use image::EncodableLayout;
 use indexmap::IndexMap;
-use log::{debug, error, trace};
+use log::{error, trace};
 use nokhwa::pixel_format::RgbFormat;
-use nokhwa::utils::{
-    ApiBackend, CameraControl, CameraFormat, ControlValueDescription, ControlValueSetter,
-    KnownCameraControlFlag,
-};
+use nokhwa::utils::{ApiBackend, CameraControl, CameraFormat, KnownCameraControlFlag};
 use nokhwa::utils::{CameraIndex, RequestedFormat, RequestedFormatType};
 use nokhwa::{Camera, query};
 use std::borrow::BorrowMut;
 use std::cmp::min;
 use std::time::Duration;
 
+mod camera_control;
 mod import_export;
 
 pub struct SpectrometerGui {
     config: SpectrometerConfig,
+    camera_control_window: camera_control::CameraControlWindow,
     import_export_window: import_export::ImportExportWindow,
     running: bool,
     camera_info: IndexMap<CameraIndex, crate::camera::CameraInfo>,
@@ -57,6 +56,7 @@ impl SpectrometerGui {
 
         let mut gui = Self {
             config,
+            camera_control_window: camera_control::CameraControlWindow::new(),
             import_export_window: import_export::ImportExportWindow::new(),
             running: false,
             camera_info: Default::default(),
@@ -670,73 +670,18 @@ impl SpectrometerGui {
         if self.config.view_config.show_camera_control_window {
             self.refresh_controls();
         }
-        egui::Window::new("Camera Controls")
-            .open(&mut self.config.view_config.show_camera_control_window)
-            .show(ctx, |ui| {
-                ui.colored_label(
-                    Color32::YELLOW,
-                    "⚠ Opening this window can increase load. ⚠",
-                );
-                let mut changed_controls = vec![];
-                for ctrl in &mut self.camera_controls {
-                    let mut value_setter = None;
-                    match ctrl.value() {
-                        ControlValueSetter::Integer(mut value) => {
-                            if let ControlValueDescription::IntegerRange {
-                                min,
-                                max,
-                                value: _,
-                                step,
-                                default,
-                            } = ctrl.description()
-                            {
-                                ui.horizontal(|ui| {
-                                    if ui.button("Reset").clicked() {
-                                        value_setter = Some(ControlValueSetter::Integer(*default));
-                                    }
-                                    if ui
-                                        .add(
-                                            Slider::new(&mut value, (*min + 1)..=(*max - 1))
-                                                .step_by(*step as f64)
-                                                .text(ctrl.name()),
-                                        )
-                                        .changed()
-                                    {
-                                        value_setter = Some(ControlValueSetter::Integer(value));
-                                    }
-                                });
-                            }
-                        }
-                        ControlValueSetter::Boolean(mut value) => {
-                            if let ControlValueDescription::Boolean { default, .. } =
-                                ctrl.description()
-                            {
-                                ui.horizontal(|ui| {
-                                    if ui.button("Reset").clicked() {
-                                        value_setter = Some(ControlValueSetter::Boolean(*default));
-                                    }
-                                    if ui.checkbox(&mut value, ctrl.name()).changed() {
-                                        value_setter = Some(ControlValueSetter::Boolean(value))
-                                    }
-                                });
-                            }
-                        }
-                        control => {
-                            debug!("Control that cannot be represented: {control:?}");
-                        }
-                    };
-                    if let Some(value_setter) = value_setter {
-                        changed_controls.push((ctrl.control(), value_setter));
-                        self.spectrum_container.clear_buffer();
-                    };
-                }
-                if !changed_controls.is_empty() {
-                    // Cannot use self.send_config due to mutable borrow in open
-                    self.camera_config_tx
-                        .send(CameraEvent::Controls(changed_controls))
-                        .unwrap();
-                }
-            });
+        let changed_controls = self.camera_control_window.update(
+            ctx,
+            &mut self.config.view_config.show_camera_control_window,
+            &self.camera_controls,
+        );
+        if !changed_controls.is_empty() {
+            self.camera_config_tx
+                .send(CameraEvent::Controls(changed_controls))
+                .unwrap();
+            // New camera settings means changed input to the spectrum. Clear buffer
+            self.spectrum_container.clear_buffer();
+        }
     }
 
     fn draw_windows(&mut self, ctx: &Context) {
