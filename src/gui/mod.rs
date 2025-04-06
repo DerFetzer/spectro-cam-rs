@@ -23,9 +23,11 @@ use std::time::Duration;
 
 mod camera_control;
 mod import_export;
+mod postprocessing;
 
 pub struct SpectrometerGui {
     config: SpectrometerConfig,
+    postprocessing_window: postprocessing::PostProcessingWindow,
     camera_control_window: camera_control::CameraControlWindow,
     import_export_window: import_export::ImportExportWindow,
     running: bool,
@@ -56,6 +58,7 @@ impl SpectrometerGui {
 
         let mut gui = Self {
             config,
+            postprocessing_window: postprocessing::PostProcessingWindow::new(),
             camera_control_window: camera_control::CameraControlWindow::new(),
             import_export_window: import_export::ImportExportWindow::new(),
             running: false,
@@ -608,64 +611,6 @@ impl SpectrometerGui {
             });
     }
 
-    fn draw_postprocessing_window(&mut self, ctx: &Context) {
-        egui::Window::new("Postprocessing")
-            .open(&mut self.config.view_config.show_postprocessing_window)
-            .show(ctx, |ui| {
-                ui.add(
-                    Slider::new(
-                        &mut self.config.postprocessing_config.spectrum_buffer_size,
-                        1..=100,
-                    )
-                    .text("Averaging Buffer Size"),
-                );
-                ui.separator();
-                ui.horizontal(|ui| {
-                    ui.checkbox(
-                        &mut self.config.postprocessing_config.spectrum_filter_active,
-                        "Low-Pass Filter",
-                    );
-                    ui.add_enabled(
-                        self.config.postprocessing_config.spectrum_filter_active,
-                        Slider::new(
-                            &mut self.config.postprocessing_config.spectrum_filter_cutoff,
-                            0.001..=1.,
-                        )
-                        .logarithmic(true)
-                        .text("Cutoff"),
-                    );
-                });
-                ui.separator();
-                ui.add_enabled(
-                    self.config.reference_config.reference.is_some(),
-                    Slider::new(&mut self.config.reference_config.scale, 0.001..=100.)
-                        .logarithmic(true)
-                        .text("Reference Scale"),
-                );
-                ui.separator();
-                ui.horizontal(|ui| {
-                    ui.checkbox(&mut self.config.view_config.draw_peaks, "Show Peaks");
-                    ui.checkbox(&mut self.config.view_config.draw_dips, "Show Dips");
-                });
-                ui.add(
-                    Slider::new(&mut self.config.view_config.peaks_dips_find_window, 1..=200)
-                        .text("Peaks/Dips Find Window"),
-                );
-                ui.add(
-                    Slider::new(
-                        &mut self.config.view_config.peaks_dips_unique_window,
-                        1.0..=200.,
-                    )
-                    .text("Peaks/Dips Filter Window"),
-                );
-                ui.separator();
-                ui.checkbox(
-                    &mut self.config.view_config.draw_color_polygons,
-                    "Show colors under spectrum",
-                );
-            });
-    }
-
     fn draw_camera_control_window(&mut self, ctx: &Context) {
         if self.config.view_config.show_camera_control_window {
             self.refresh_controls();
@@ -687,7 +632,7 @@ impl SpectrometerGui {
     fn draw_windows(&mut self, ctx: &Context) {
         self.draw_camera_window(ctx);
         self.draw_calibration_window(ctx);
-        self.draw_postprocessing_window(ctx);
+        self.postprocessing_window.update(ctx, &mut self.config);
         self.draw_camera_control_window(ctx);
         if let Some(last_error) =
             self.import_export_window
