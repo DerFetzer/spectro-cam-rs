@@ -1,6 +1,6 @@
 use crate::camera::{CameraEvent, CameraInfo, SharedFrameBuffer};
 use crate::color::wavelength_to_color;
-use crate::config::{GainPresets, Linearize, SpectrometerConfig, SpectrumPoint};
+use crate::config::{SpectrometerConfig, SpectrumPoint};
 use crate::spectrum::{SpectrumContainer, SpectrumRgb};
 use crate::{ThreadId, ThreadResult};
 use eframe::{App, CreationContext};
@@ -21,12 +21,14 @@ use std::borrow::BorrowMut;
 use std::cmp::min;
 use std::time::Duration;
 
+mod calibration;
 mod camera_control;
 mod import_export;
 mod postprocessing;
 
 pub struct SpectrometerGui {
     config: SpectrometerConfig,
+    calibration_window: calibration::CalibrationWindow,
     postprocessing_window: postprocessing::PostProcessingWindow,
     camera_control_window: camera_control::CameraControlWindow,
     import_export_window: import_export::ImportExportWindow,
@@ -58,6 +60,7 @@ impl SpectrometerGui {
 
         let mut gui = Self {
             config,
+            calibration_window: calibration::CalibrationWindow::new(),
             postprocessing_window: postprocessing::PostProcessingWindow::new(),
             camera_control_window: camera_control::CameraControlWindow::new(),
             import_export_window: import_export::ImportExportWindow::new(),
@@ -458,159 +461,6 @@ impl SpectrometerGui {
             });
     }
 
-    fn draw_calibration_window(&mut self, ctx: &Context) {
-        egui::Window::new("Calibration")
-            .open(&mut self.config.view_config.show_calibration_window)
-            .show(ctx, |ui| {
-                ui.add(
-                    Slider::new(
-                        &mut self.config.spectrum_calibration.low.wavelength,
-                        200..=self.config.spectrum_calibration.high.wavelength - 1,
-                    )
-                    .text("Low Wavelength"),
-                );
-                ui.add(
-                    Slider::new(
-                        &mut self.config.spectrum_calibration.low.index,
-                        0..=self.config.spectrum_calibration.high.index - 1,
-                    )
-                    .text("Low Index"),
-                );
-
-                ui.add(
-                    Slider::new(
-                        &mut self.config.spectrum_calibration.high.wavelength,
-                        (self.config.spectrum_calibration.low.wavelength + 1)..=2000,
-                    )
-                    .text("High Wavelength"),
-                );
-                ui.add(
-                    Slider::new(
-                        &mut self.config.spectrum_calibration.high.index,
-                        (self.config.spectrum_calibration.low.index + 1)
-                            ..=self.config.image_config.window.size.x as usize,
-                    )
-                    .text("High Index"),
-                );
-                ui.separator();
-                ComboBox::from_label("Linearize")
-                    .selected_text(self.config.spectrum_calibration.linearize.to_string())
-                    .show_ui(ui, |ui| {
-                        let mut changed = false;
-                        changed |= ui
-                            .selectable_value(
-                                &mut self.config.spectrum_calibration.linearize,
-                                Linearize::Off,
-                                Linearize::Off.to_string(),
-                            )
-                            .changed();
-                        changed |= ui
-                            .selectable_value(
-                                &mut self.config.spectrum_calibration.linearize,
-                                Linearize::Rec601,
-                                Linearize::Rec601.to_string(),
-                            )
-                            .changed();
-                        changed |= ui
-                            .selectable_value(
-                                &mut self.config.spectrum_calibration.linearize,
-                                Linearize::Rec709,
-                                Linearize::Rec709.to_string(),
-                            )
-                            .changed();
-                        changed |= ui
-                            .selectable_value(
-                                &mut self.config.spectrum_calibration.linearize,
-                                Linearize::SRgb,
-                                Linearize::SRgb.to_string(),
-                            )
-                            .changed();
-
-                        // Clear buffer if value changed
-                        if changed {
-                            self.spectrum_container.clear_buffer()
-                        };
-                    });
-                ui.add(
-                    Slider::new(&mut self.config.spectrum_calibration.gain_r, 0.0..=10.)
-                        .text("Gain R"),
-                );
-                ui.add(
-                    Slider::new(&mut self.config.spectrum_calibration.gain_g, 0.0..=10.)
-                        .text("Gain G"),
-                );
-                ui.add(
-                    Slider::new(&mut self.config.spectrum_calibration.gain_b, 0.0..=10.)
-                        .text("Gain B"),
-                );
-
-                ui.horizontal(|ui| {
-                    let unity_button = ui.button(GainPresets::Unity.to_string());
-                    if unity_button.clicked() {
-                        self.config
-                            .spectrum_calibration
-                            .set_gain_preset(GainPresets::Unity);
-                    }
-                    let srgb_button = ui.button(GainPresets::SRgb.to_string());
-                    if srgb_button.clicked() {
-                        self.config
-                            .spectrum_calibration
-                            .set_gain_preset(GainPresets::SRgb);
-                    }
-                    let rec601_button = ui.button(GainPresets::Rec601.to_string());
-                    if rec601_button.clicked() {
-                        self.config
-                            .spectrum_calibration
-                            .set_gain_preset(GainPresets::Rec601);
-                    }
-                    let rec709_button = ui.button(GainPresets::Rec709.to_string());
-                    if rec709_button.clicked() {
-                        self.config
-                            .spectrum_calibration
-                            .set_gain_preset(GainPresets::Rec709);
-                    }
-                });
-
-                ui.separator();
-                // Reference calibration settings. See readme for more information.
-                let set_calibration_button = ui.add_enabled(
-                    self.config.reference_config.reference.is_some()
-                        && self.config.spectrum_calibration.scaling.is_none(),
-                    Button::new("Set Reference as Calibration"),
-                );
-                if set_calibration_button.clicked() {
-                    self.spectrum_container.set_calibration(
-                        &mut self.config.spectrum_calibration,
-                        &self.config.reference_config,
-                    );
-                };
-                let delete_calibration_button = ui.add_enabled(
-                    self.config.reference_config.reference.is_some()
-                        && self.config.spectrum_calibration.scaling.is_some(),
-                    Button::new("Delete Calibration"),
-                );
-                if delete_calibration_button.clicked() {
-                    self.config.spectrum_calibration.scaling = None;
-                };
-
-                ui.separator();
-                let set_zero_button = ui.add_enabled(
-                    !self.spectrum_container.has_zero_reference(),
-                    Button::new("Set Current As Zero Reference"),
-                );
-                if set_zero_button.clicked() {
-                    self.spectrum_container.set_zero_reference();
-                }
-                let clear_zero_button = ui.add_enabled(
-                    self.spectrum_container.has_zero_reference(),
-                    Button::new("Clear Zero Reference"),
-                );
-                if clear_zero_button.clicked() {
-                    self.spectrum_container.clear_zero_reference();
-                }
-            });
-    }
-
     fn draw_camera_control_window(&mut self, ctx: &Context) {
         if self.config.view_config.show_camera_control_window {
             self.refresh_controls();
@@ -631,9 +481,14 @@ impl SpectrometerGui {
 
     fn draw_windows(&mut self, ctx: &Context) {
         self.draw_camera_window(ctx);
-        self.draw_calibration_window(ctx);
+
+        self.calibration_window
+            .update(ctx, &mut self.config, &mut self.spectrum_container);
+
         self.postprocessing_window.update(ctx, &mut self.config);
+
         self.draw_camera_control_window(ctx);
+
         if let Some(last_error) =
             self.import_export_window
                 .update(ctx, &mut self.config, &mut self.spectrum_container)
