@@ -4,13 +4,9 @@ use crate::config::{SpectrometerConfig, SpectrumPoint};
 use crate::spectrum::{SpectrumContainer, SpectrumRgb};
 use crate::{ThreadId, ThreadResult};
 use eframe::{App, CreationContext};
-use egui::{
-    Button, Color32, ColorImage, ComboBox, Context, CornerRadius, Rect, RichText, Sense, Slider,
-    Stroke, TextureHandle, UiBuilder, Vec2,
-};
+use egui::{Color32, ComboBox, Context, RichText, Stroke};
 use egui_plot::{Legend, Line, MarkerShape, Plot, PlotPoint, Points, Polygon, Text, VLine};
 use flume::{Receiver, Sender};
-use image::EncodableLayout;
 use indexmap::IndexMap;
 use log::{error, trace};
 use nokhwa::pixel_format::RgbFormat;
@@ -22,12 +18,14 @@ use std::cmp::min;
 use std::time::Duration;
 
 mod calibration;
+mod camera;
 mod camera_control;
 mod import_export;
 mod postprocessing;
 
 pub struct SpectrometerGui {
     config: SpectrometerConfig,
+    camera_window: camera::CameraWindow,
     calibration_window: calibration::CalibrationWindow,
     postprocessing_window: postprocessing::PostProcessingWindow,
     camera_control_window: camera_control::CameraControlWindow,
@@ -35,12 +33,9 @@ pub struct SpectrometerGui {
     running: bool,
     camera_info: IndexMap<CameraIndex, crate::camera::CameraInfo>,
     camera_controls: Vec<CameraControl>,
-    webcam_texture_id: Option<TextureHandle>,
     spectrum_container: SpectrumContainer,
     camera_config_tx: Sender<CameraEvent>,
-    camera_config_change_pending: bool,
     result_rx: Receiver<ThreadResult>,
-    frame_rx: SharedFrameBuffer,
     last_error: Option<ThreadResult>,
 }
 
@@ -60,6 +55,7 @@ impl SpectrometerGui {
 
         let mut gui = Self {
             config,
+            camera_window: camera::CameraWindow::new(frame_rx),
             calibration_window: calibration::CalibrationWindow::new(),
             postprocessing_window: postprocessing::PostProcessingWindow::new(),
             camera_control_window: camera_control::CameraControlWindow::new(),
@@ -67,12 +63,9 @@ impl SpectrometerGui {
             running: false,
             camera_info: Default::default(),
             camera_controls: Default::default(),
-            webcam_texture_id: None,
             spectrum_container: SpectrumContainer::new(spectrum_rx),
             camera_config_tx,
-            camera_config_change_pending: false,
             result_rx,
-            frame_rx,
             last_error: None,
         };
         gui.query_cameras();
@@ -340,125 +333,12 @@ impl SpectrometerGui {
     }
 
     fn draw_camera_window(&mut self, ctx: &Context) {
-        egui::Window::new("Camera")
-            .open(&mut self.config.view_config.show_camera_window)
-            .show(ctx, |ui| {
-                ui.add(
-                    Slider::new(&mut self.config.view_config.image_scale, 0.1..=2.)
-                        .text("Preview Scaling Factor"),
-                );
-
-                ui.separator();
-
-                if let Some(webcam_texture_handle) = &self.webcam_texture_id {
-                    let image = egui::Image::from_texture((
-                        webcam_texture_handle.id(),
-                        webcam_texture_handle.size_vec2(),
-                    ))
-                    .fit_to_exact_size(
-                        webcam_texture_handle.size_vec2() * self.config.view_config.image_scale,
-                    );
-                    let image_response = ui.add(image);
-
-                    // Paint window rect
-                    ui.scope_builder(UiBuilder::new().layer_id(image_response.layer_id), |ui| {
-                        let painter = ui.painter();
-                        let image_rect = image_response.rect;
-                        let image_origin = image_rect.min;
-                        let scale = Vec2::new(
-                            image_rect.width() / self.config.camera_format.unwrap().width() as f32,
-                            image_rect.height()
-                                / self.config.camera_format.unwrap().height() as f32,
-                        );
-                        let window_rect = Rect::from_min_size(
-                            image_origin + self.config.image_config.window.offset * scale,
-                            self.config.image_config.window.size * scale,
-                        );
-                        painter.rect_stroke(
-                            window_rect,
-                            CornerRadius::ZERO,
-                            Stroke::new(2., Color32::GOLD),
-                            egui::StrokeKind::Middle,
-                        );
-                    });
-                    ui.separator();
-                }
-
-                // Window config
-                let mut changed = false;
-
-                ui.columns(2, |cols| {
-                    changed |= cols[0]
-                        .add(
-                            Slider::new(
-                                &mut self.config.image_config.window.offset.x,
-                                1.0..=(self.config.camera_format.unwrap().width() as f32 - 1.),
-                            )
-                            .step_by(1.)
-                            .text("Offset X"),
-                        )
-                        .changed();
-                    changed |= cols[0]
-                        .add(
-                            Slider::new(
-                                &mut self.config.image_config.window.offset.y,
-                                1.0..=(self.config.camera_format.unwrap().height() as f32 - 1.),
-                            )
-                            .step_by(1.)
-                            .text("Offset Y"),
-                        )
-                        .changed();
-
-                    changed |= cols[1]
-                        .add(
-                            Slider::new(
-                                &mut self.config.image_config.window.size.x,
-                                1.0..=(self.config.camera_format.unwrap().width() as f32
-                                    - self.config.image_config.window.offset.x
-                                    - 1.),
-                            )
-                            .step_by(1.)
-                            .text("Size X"),
-                        )
-                        .changed();
-                    changed |= cols[1]
-                        .add(
-                            Slider::new(
-                                &mut self.config.image_config.window.size.y,
-                                1.0..=(self.config.camera_format.unwrap().height() as f32
-                                    - self.config.image_config.window.offset.y
-                                    - 1.),
-                            )
-                            .step_by(1.)
-                            .text("Size Y"),
-                        )
-                        .changed();
-                });
-                ui.separator();
-                changed |= ui
-                    .checkbox(&mut self.config.image_config.flip, "Flip")
-                    .changed();
-
-                if changed {
-                    self.camera_config_change_pending = true;
-                }
-
-                ui.separator();
-                let update_config_button = ui.add(Button::new("Update Config").sense(
-                    if self.camera_config_change_pending {
-                        Sense::click()
-                    } else {
-                        Sense::hover()
-                    },
-                ));
-                if update_config_button.clicked() {
-                    self.camera_config_change_pending = false;
-                    // Cannot use self.send_config due to mutable borrow in open
-                    self.camera_config_tx
-                        .send(CameraEvent::Config(self.config.image_config.clone()))
-                        .unwrap();
-                }
-            });
+        let window_config_changed = self.camera_window.update(ctx, &mut self.config);
+        if window_config_changed {
+            self.camera_config_tx
+                .send(CameraEvent::Config(self.config.image_config.clone()))
+                .unwrap();
+        }
     }
 
     fn draw_camera_control_window(&mut self, ctx: &Context) {
@@ -622,28 +502,6 @@ impl SpectrometerGui {
                 ));
             } else {
                 ctx.request_repaint();
-            }
-        }
-
-        match self.frame_rx.lock() {
-            Ok(mut webcam_image) => {
-                if let Some(webcam_image) = webcam_image.take() {
-                    let webcam_color_image = ColorImage::from_rgb(
-                        [
-                            webcam_image.width() as usize,
-                            webcam_image.height() as usize,
-                        ],
-                        webcam_image.as_bytes(),
-                    );
-                    self.webcam_texture_id = Some(ctx.load_texture(
-                        "webcam_texture",
-                        webcam_color_image,
-                        Default::default(),
-                    ));
-                }
-            }
-            _ => {
-                error!("Webcam thread poisoned lock");
             }
         }
 
