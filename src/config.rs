@@ -82,11 +82,14 @@ impl Default for ReferenceConfig {
 impl ReferenceConfig {
     pub fn to_line(&self) -> Option<Line> {
         self.reference.as_ref().map(|reference| {
-            Line::new(PlotPoints::from_iter(
-                reference
-                    .iter()
-                    .map(|rp| [rp.wavelength as f64, (rp.value * self.scale) as f64]),
-            ))
+            Line::new(
+                "Reference line",
+                PlotPoints::from_iter(
+                    reference
+                        .iter()
+                        .map(|rp| [rp.wavelength as f64, (rp.value * self.scale) as f64]),
+                ),
+            )
         })
     }
 

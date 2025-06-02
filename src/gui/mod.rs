@@ -238,8 +238,14 @@ impl SpectrometerGui {
                     }
 
                     if self.config.view_config.show_calibration_window {
-                        plot_ui.vline(VLine::new(self.config.spectrum_calibration.low.wavelength));
-                        plot_ui.vline(VLine::new(self.config.spectrum_calibration.high.wavelength));
+                        plot_ui.vline(VLine::new(
+                            "Low calibration wavelength",
+                            self.config.spectrum_calibration.low.wavelength,
+                        ));
+                        plot_ui.vline(VLine::new(
+                            "High calibration wavelength",
+                            self.config.spectrum_calibration.high.wavelength,
+                        ));
                     }
                 });
         });
@@ -258,7 +264,7 @@ impl SpectrometerGui {
             index,
             &points[..min(points.len(), 50)]
         );
-        Line::new(points)
+        Line::new("Spectrum line", points)
     }
 
     fn get_spectrum_color_polygons(&self) -> Vec<Polygon> {
@@ -267,12 +273,15 @@ impl SpectrometerGui {
             .as_slice()
             .windows(2)
             .map(|w| {
-                Polygon::new(vec![
-                    [w[0].wavelength as f64, 0.0],
-                    [w[0].wavelength as f64, w[0].value as f64],
-                    [w[1].wavelength as f64, w[1].value as f64],
-                    [w[1].wavelength as f64, 0.0],
-                ])
+                Polygon::new(
+                    "Spectrum colors",
+                    vec![
+                        [w[0].wavelength as f64, 0.0],
+                        [w[0].wavelength as f64, w[0].value as f64],
+                        [w[1].wavelength as f64, w[1].value as f64],
+                        [w[1].wavelength as f64, 0.0],
+                    ],
+                )
                 .fill_color(wavelength_to_color(w[0].wavelength))
                 .stroke(Stroke::new(0.0, Color32::TRANSPARENT))
             })
@@ -289,6 +298,7 @@ impl SpectrometerGui {
         for peak_dip in filtered_peaks_dips {
             peak_dip_labels.push(
                 Text::new(
+                    "Peaks/Dips wavelength",
                     PlotPoint::new(
                         peak_dip.wavelength,
                         if peaks {
@@ -309,12 +319,12 @@ impl SpectrometerGui {
 
         let (peaks, peak_labels) = (
             Points::new(
+                "Peaks/Dips markers",
                 filtered_peaks_dips
                     .iter()
                     .map(|sp| [sp.wavelength as f64, sp.value as f64])
                     .collect::<Vec<_>>(),
             )
-            .name("Peaks")
             .shape(if peaks {
                 MarkerShape::Up
             } else {
