@@ -298,7 +298,11 @@ impl SpectrometerGui {
         for peak_dip in filtered_peaks_dips {
             peak_dip_labels.push(
                 Text::new(
-                    "Peaks/Dips wavelength",
+                    if peaks {
+                        "Peaks wavelength"
+                    } else {
+                        "Dips wavelength"
+                    },
                     PlotPoint::new(
                         peak_dip.wavelength,
                         if peaks {
@@ -319,7 +323,11 @@ impl SpectrometerGui {
 
         let (peaks, peak_labels) = (
             Points::new(
-                "Peaks/Dips markers",
+                if peaks {
+                    "Peaks markers"
+                } else {
+                    "Dips markers"
+                },
                 filtered_peaks_dips
                     .iter()
                     .map(|sp| [sp.wavelength as f64, sp.value as f64])
