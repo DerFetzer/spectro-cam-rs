@@ -19,6 +19,8 @@ jobs:
 
     steps:
     - if: matrix.os == 'ubuntu-latest'
+      run: sudo apt-get update
+    - if: matrix.os == 'ubuntu-latest'
       run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libspeechd-dev libxkbcommon-dev libssl-dev
     - uses: davidB/rust-cargo-make@v1
     - uses: actions/checkout@v4
