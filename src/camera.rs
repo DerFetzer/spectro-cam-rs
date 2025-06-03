@@ -9,7 +9,7 @@ use nokhwa::utils::{
     CameraFormat, CameraIndex, ControlValueSetter, FrameFormat, KnownCameraControl,
     RequestedFormat, RequestedFormatType, Resolution,
 };
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 
 #[derive(Debug, Clone)]
 pub struct CameraInfo {
@@ -41,6 +41,8 @@ pub enum CameraEvent {
     StopStream,
     Config(ImageConfig),
     Controls(Vec<(KnownCameraControl, ControlValueSetter)>),
+    Pause,
+    Resume,
 }
 
 struct Exit {}
@@ -75,7 +77,11 @@ impl CameraThread {
         #[allow(clippy::type_complexity)]
         let controls: Arc<Mutex<Option<Vec<(KnownCameraControl, ControlValueSetter)>>>> =
             Arc::new(Mutex::new(None));
+
+        let pause = Arc::new((Mutex::new(false), Condvar::new()));
+
         let mut join_handle = None;
+
         while let Ok(event) = self.config_rx.recv() {
             match event {
                 CameraEvent::StartStream { id, format } => {
@@ -86,6 +92,8 @@ impl CameraThread {
                     let window_tx = self.window_tx.clone();
                     let result_tx = self.result_tx.clone();
                     let exit_rx = exit_rx.clone();
+                    let pause_thread = Arc::clone(&pause);
+
                     let hdl = std::thread::spawn(move || {
                         let mut camera = match CallbackCamera::new(
                             id,
@@ -127,7 +135,15 @@ impl CameraThread {
 
                         let mut inner_config = None;
 
+                        let (pause_lock, pause_cvar) = &*pause_thread;
+
                         loop {
+                            // Check pause request
+                            let guard = pause_cvar
+                                .wait_while(pause_lock.lock().unwrap(), |paused| *paused)
+                                .unwrap();
+                            drop(guard);
+
                             // Check exit request
                             if exit_rx.try_recv().is_ok() {
                                 return;
@@ -207,6 +223,18 @@ impl CameraThread {
                 }
                 CameraEvent::Controls(ctrls) => {
                     *controls.lock().unwrap() = Some(ctrls);
+                }
+                CameraEvent::Pause => {
+                    let (pause_lock, pause_cvar) = &*pause;
+                    let mut paused = pause_lock.lock().unwrap();
+                    *paused = true;
+                    pause_cvar.notify_one();
+                }
+                CameraEvent::Resume => {
+                    let (pause_lock, pause_cvar) = &*pause;
+                    let mut paused = pause_lock.lock().unwrap();
+                    *paused = false;
+                    pause_cvar.notify_one();
                 }
             }
         }

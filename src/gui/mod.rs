@@ -31,6 +31,7 @@ pub struct SpectrometerGui {
     camera_control_window: camera_control::CameraControlWindow,
     import_export_window: import_export::ImportExportWindow,
     running: bool,
+    paused: bool,
     camera_info: IndexMap<CameraIndex, crate::camera::CameraInfo>,
     camera_controls: Vec<CameraControl>,
     spectrum_container: SpectrumContainer,
@@ -61,6 +62,7 @@ impl SpectrometerGui {
             camera_control_window: camera_control::CameraControlWindow::new(),
             import_export_window: import_export::ImportExportWindow::new(),
             running: false,
+            paused: false,
             camera_info: Default::default(),
             camera_controls: Default::default(),
             spectrum_container: SpectrumContainer::new(spectrum_rx),
@@ -166,7 +168,17 @@ impl SpectrometerGui {
         }
     }
 
+    fn pause_stream(&mut self) {
+        self.camera_config_tx.send(CameraEvent::Pause).unwrap();
+    }
+
+    fn resume_stream(&mut self) {
+        self.camera_config_tx.send(CameraEvent::Resume).unwrap();
+    }
+
     fn stop_stream(&mut self) {
+        // First resume stream, otherwise the camera thread will not continue
+        self.resume_stream();
         self.camera_config_tx.send(CameraEvent::StopStream).unwrap();
     }
 
@@ -451,6 +463,7 @@ impl SpectrometerGui {
                             .clamp(camera_format.width() as f32, camera_format.height() as f32);
 
                         self.running = !self.running;
+                        self.paused = false;
                         if self.running {
                             self.start_stream();
                         } else {
@@ -463,6 +476,18 @@ impl SpectrometerGui {
                         });
                     }
                 };
+                if self.running {
+                    let pause_resume_button =
+                        ui.button(if self.paused { "Resume" } else { "Pause" });
+                    if pause_resume_button.clicked() {
+                        if self.paused {
+                            self.resume_stream();
+                        } else {
+                            self.pause_stream();
+                        }
+                        self.paused = !self.paused;
+                    }
+                }
             });
         });
     }
