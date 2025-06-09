@@ -188,13 +188,25 @@ impl SpectrometerGui {
                 .legend(Legend::default())
                 .show(ui, |plot_ui| {
                     if self.config.view_config.draw_spectrum_r {
-                        plot_ui.line(self.get_spectrum_line(0).color(Color32::RED).name("r"));
+                        plot_ui.line(
+                            self.get_spectrum_line(0)
+                                .color(Color32::RED)
+                                .name("Spectrum R"),
+                        );
                     }
                     if self.config.view_config.draw_spectrum_g {
-                        plot_ui.line(self.get_spectrum_line(1).color(Color32::GREEN).name("g"));
+                        plot_ui.line(
+                            self.get_spectrum_line(1)
+                                .color(Color32::GREEN)
+                                .name("Spectrum G"),
+                        );
                     }
                     if self.config.view_config.draw_spectrum_b {
-                        plot_ui.line(self.get_spectrum_line(2).color(Color32::BLUE).name("b"));
+                        plot_ui.line(
+                            self.get_spectrum_line(2)
+                                .color(Color32::BLUE)
+                                .name("Spectrum B"),
+                        );
                     }
                     if self.config.view_config.draw_spectrum_combined {
                         if self.config.view_config.draw_color_polygons {
@@ -276,7 +288,7 @@ impl SpectrometerGui {
             index,
             &points[..min(points.len(), 50)]
         );
-        Line::new("Spectrum line", points)
+        Line::new(format!("Spectrum line {index}"), points)
     }
 
     fn get_spectrum_color_polygons(&self) -> Vec<Polygon> {
