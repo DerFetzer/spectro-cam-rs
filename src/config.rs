@@ -80,7 +80,7 @@ impl Default for ReferenceConfig {
 }
 
 impl ReferenceConfig {
-    pub fn to_line(&self) -> Option<Line> {
+    pub fn to_line(&self) -> Option<Line<'_>> {
         self.reference.as_ref().map(|reference| {
             Line::new(
                 "Reference line",

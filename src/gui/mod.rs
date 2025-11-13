@@ -275,7 +275,7 @@ impl SpectrometerGui {
         });
     }
 
-    fn get_spectrum_line(&self, index: usize) -> Line {
+    fn get_spectrum_line(&self, index: usize) -> Line<'_> {
         let points = self
             .spectrum_container
             .get_spectrum_channel(index, &self.config)
@@ -291,7 +291,7 @@ impl SpectrometerGui {
         Line::new(format!("Spectrum line {index}"), points)
     }
 
-    fn get_spectrum_color_polygons(&self) -> Vec<Polygon> {
+    fn get_spectrum_color_polygons(&self) -> Vec<Polygon<'_>> {
         self.spectrum_container
             .get_spectrum_channel(3, &self.config)
             .as_slice()
@@ -450,8 +450,8 @@ impl SpectrometerGui {
                         Some(camera_format) => format!("{}", camera_format),
                     })
                     .show_ui(ui, |ui| {
-                        if !self.running {
-                            if let Some((_camera_index, camera_info)) =
+                        if !self.running
+                            && let Some((_camera_index, camera_info)) =
                                 self.camera_info.get_index(self.config.camera_id)
                             {
                                 for cf in &camera_info.formats {
@@ -462,7 +462,6 @@ impl SpectrometerGui {
                                     );
                                 }
                             }
-                        }
                     });
 
                 let connect_button = ui.button(if self.running { "Stop..." } else { "Start..." });
