@@ -108,10 +108,11 @@ impl SpectrumContainer {
 
         // Clear buffer and zero reference on dimension change
         if let Some(s) = self.spectrum_buffer.front()
-            && s.ncols() != ncols {
-                self.spectrum_buffer.clear();
-                self.zero_reference = None;
-            }
+            && s.ncols() != ncols
+        {
+            self.spectrum_buffer.clear();
+            self.zero_reference = None;
+        }
 
         if config.spectrum_calibration.linearize != Linearize::Off {
             spectrum

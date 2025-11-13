@@ -453,15 +453,15 @@ impl SpectrometerGui {
                         if !self.running
                             && let Some((_camera_index, camera_info)) =
                                 self.camera_info.get_index(self.config.camera_id)
-                            {
-                                for cf in &camera_info.formats {
-                                    ui.selectable_value(
-                                        &mut self.config.camera_format,
-                                        Some(*cf),
-                                        format!("{}", cf),
-                                    );
-                                }
+                        {
+                            for cf in &camera_info.formats {
+                                ui.selectable_value(
+                                    &mut self.config.camera_format,
+                                    Some(*cf),
+                                    format!("{}", cf),
+                                );
                             }
+                        }
                     });
 
                 let connect_button = ui.button(if self.running { "Stop..." } else { "Start..." });
