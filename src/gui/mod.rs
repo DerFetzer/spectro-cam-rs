@@ -130,13 +130,11 @@ impl SpectrometerGui {
     }
 
     fn refresh_controls(&mut self) {
+        let camera_info = self.camera_info.get_index(self.config.camera_id).unwrap().1;
         let requested_format = RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(
             self.config.camera_format.unwrap(),
         ));
-        match Camera::new(
-            CameraIndex::Index(self.config.camera_id as u32),
-            requested_format,
-        ) {
+        match Camera::new(camera_info.info.index().clone(), requested_format) {
             Ok(cam) => {
                 self.camera_controls = cam
                     .camera_controls()
@@ -151,20 +149,6 @@ impl SpectrometerGui {
             Err(e) => {
                 error!("Could not refresh camera controls: {e}");
             }
-        }
-        if let Ok(cam) = Camera::new(
-            CameraIndex::Index(self.config.camera_id as u32),
-            requested_format,
-        ) {
-            self.camera_controls = cam
-                .camera_controls()
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|c| {
-                    !c.flag().contains(&KnownCameraControlFlag::ReadOnly)
-                        && !c.flag().contains(&KnownCameraControlFlag::WriteOnly)
-                })
-                .collect();
         }
     }
 

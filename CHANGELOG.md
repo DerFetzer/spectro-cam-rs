@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Pause/resume camera stream
 
+### Fixed
+
+- Fix crash triggered by opening camera controls when multiple cameras are present ([#10]).
+
 ## [0.2.0] - 2025-02-19
 
 ### Added
@@ -28,5 +32,6 @@ Initial release
 
 
 [unreleased]: https://github.com/DerFetzer/spectro-cam-rs/compare/0.2.0...HEAD
+[#10]: https://github.com/DerFetzer/spectro-cam-rs/issues/10
 [0.2.0]: https://github.com/DerFetzer/spectro-cam-rs/releases/tag/0.2.0
 [0.1.0]: https://github.com/DerFetzer/spectro-cam-rs/releases/tag/0.1.0
