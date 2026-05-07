@@ -4,7 +4,7 @@ use crate::config::{SpectrometerConfig, SpectrumPoint};
 use crate::spectrum::{SpectrumContainer, SpectrumRgb};
 use crate::{ThreadId, ThreadResult};
 use eframe::{App, CreationContext};
-use egui::{Color32, ComboBox, Context, RichText, Stroke};
+use egui::{Color32, ComboBox, RichText, Stroke, Ui};
 use egui_plot::{Legend, Line, MarkerShape, Plot, PlotPoint, Points, Polygon, Text, VLine};
 use flume::{Receiver, Sender};
 use indexmap::IndexMap;
@@ -166,8 +166,8 @@ impl SpectrometerGui {
         self.camera_config_tx.send(CameraEvent::StopStream).unwrap();
     }
 
-    fn draw_spectrum(&mut self, ctx: &Context) {
-        egui::CentralPanel::default().show(ctx, |ui| {
+    fn draw_spectrum(&mut self, ui: &mut Ui) {
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             Plot::new("Spectrum")
                 .legend(Legend::default())
                 .show(ui, |plot_ui| {
@@ -358,8 +358,8 @@ impl SpectrometerGui {
         (peaks, peak_labels)
     }
 
-    fn draw_camera_window(&mut self, ctx: &Context) {
-        let window_config_changed = self.camera_window.update(ctx, &mut self.config);
+    fn draw_camera_window(&mut self, ui: &mut Ui) {
+        let window_config_changed = self.camera_window.update(ui, &mut self.config);
         if window_config_changed {
             self.camera_config_tx
                 .send(CameraEvent::Config(self.config.image_config.clone()))
@@ -367,12 +367,12 @@ impl SpectrometerGui {
         }
     }
 
-    fn draw_camera_control_window(&mut self, ctx: &Context) {
+    fn draw_camera_control_window(&mut self, ui: &mut Ui) {
         if self.config.view_config.show_camera_control_window {
             self.refresh_controls();
         }
         let changed_controls = self.camera_control_window.update(
-            ctx,
+            ui,
             &mut self.config.view_config.show_camera_control_window,
             &self.camera_controls,
         );
@@ -385,26 +385,26 @@ impl SpectrometerGui {
         }
     }
 
-    fn draw_windows(&mut self, ctx: &Context) {
-        self.draw_camera_window(ctx);
+    fn draw_windows(&mut self, ui: &mut Ui) {
+        self.draw_camera_window(ui);
 
         self.calibration_window
-            .update(ctx, &mut self.config, &mut self.spectrum_container);
+            .update(ui, &mut self.config, &mut self.spectrum_container);
 
-        self.postprocessing_window.update(ctx, &mut self.config);
+        self.postprocessing_window.update(ui, &mut self.config);
 
-        self.draw_camera_control_window(ctx);
+        self.draw_camera_control_window(ui);
 
         if let Some(last_error) =
             self.import_export_window
-                .update(ctx, &mut self.config, &mut self.spectrum_container)
+                .update(ui, &mut self.config, &mut self.spectrum_container)
         {
             self.last_error = Some(last_error);
         }
     }
 
-    fn draw_connection_panel(&mut self, ctx: &Context) {
-        egui::TopBottomPanel::top("camera").show(ctx, |ui| {
+    fn draw_connection_panel(&mut self, ui: &mut Ui) {
+        egui::Panel::top("camera").show_inside(ui, |ui| {
             ui.horizontal(|ui| {
                 ComboBox::from_id_salt("cb_camera")
                     .selected_text(format!(
@@ -487,8 +487,8 @@ impl SpectrometerGui {
         });
     }
 
-    fn draw_window_selection_panel(&mut self, ctx: &Context) {
-        egui::SidePanel::left("window_selection").show(ctx, |ui| {
+    fn draw_window_selection_panel(&mut self, ui: &mut Ui) {
+        egui::Panel::left("window_selection").show_inside(ui, |ui| {
             ui.checkbox(&mut self.config.view_config.show_camera_window, "Camera");
             ui.checkbox(
                 &mut self.config.view_config.show_camera_control_window,
@@ -509,8 +509,8 @@ impl SpectrometerGui {
         });
     }
 
-    fn draw_last_result(&mut self, ctx: &Context) {
-        egui::TopBottomPanel::bottom("result").show(ctx, |ui| {
+    fn draw_last_result(&mut self, ui: &mut Ui) {
+        egui::Panel::bottom("result").show_inside(ui, |ui| {
             if let Some(res) = self.last_error.as_ref() {
                 ui.label(match &res.result {
                     Ok(()) => RichText::new("OK").color(Color32::GREEN),
@@ -532,14 +532,14 @@ impl SpectrometerGui {
         }
     }
 
-    pub fn update(&mut self, ctx: &Context) {
+    pub fn update(&mut self, ui: &mut Ui) {
         if self.running {
             if let Some(camera_format) = self.config.camera_format {
-                ctx.request_repaint_after(Duration::from_millis(
+                ui.request_repaint_after(Duration::from_millis(
                     (1000 / camera_format.frame_rate()).into(),
                 ));
             } else {
-                ctx.request_repaint();
+                ui.request_repaint();
             }
         }
 
@@ -550,21 +550,21 @@ impl SpectrometerGui {
             self.last_error = Some(error);
         }
 
-        self.draw_connection_panel(ctx);
+        self.draw_connection_panel(ui);
 
         if self.running {
-            self.draw_window_selection_panel(ctx);
-            self.draw_windows(ctx);
+            self.draw_window_selection_panel(ui);
+            self.draw_windows(ui);
         }
 
-        self.draw_spectrum(ctx);
-        self.draw_last_result(ctx);
+        self.draw_spectrum(ui);
+        self.draw_last_result(ui);
     }
 }
 
 impl App for SpectrometerGui {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.update(ctx);
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.update(ui);
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {

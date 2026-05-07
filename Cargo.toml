@@ -7,25 +7,25 @@ edition = "2024"
 
 [dependencies]
 log = "^0.4"
-env_logger = "0.11.8"
-egui = { version = "0.33.2", features = ["serde"] }
-eframe = { version = "0.33.2", features = ["persistence"] }
+env_logger = "0.11.10"
+egui = { version = "0.34.2", features = ["serde"] }
+eframe = { version = "0.34.2", features = ["persistence"] }
 serde = { version = "1.0", features = ["derive"] }
 nokhwa = { version = "0.10.10", features = ["input-v4l", "input-msmf", "input-avfoundation", "output-threaded", "serialize"] }
-flume = "0.11.1"
+flume = "0.12.0"
 image = "0.25"
-nalgebra = "0.34.1"
-biquad = "0.5.0"
+nalgebra = "0.34.2"
+biquad = "0.6.0"
 csv = "1.4.0"
 physical_constants = "0.5.0"
-egui_plot = { version = "0.34.0", features = ["serde"] }
-indexmap = "2.12.0"
+egui_plot = { version = "0.35.0", features = ["serde"] }
+indexmap = "2.14.0"
 palette = { version = "0.7.6", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 rstest = "0.26"
 approx = "0.5.1"
-criterion = "0.7"
+criterion = "0.8"
 
 [profile.release]
 lto = "thin"
