@@ -1,6 +1,6 @@
 [package]
 name = "spectro-cam-rs"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -14,7 +14,7 @@ serde = { version = "1.0", features = ["derive"] }
 nokhwa = { version = "0.10.10", features = ["input-v4l", "input-msmf", "input-avfoundation", "output-threaded", "serialize"] }
 flume = "0.12.0"
 image = "0.25"
-nalgebra = "0.34.2"
+nalgebra = "0.35.0"
 biquad = "0.6.0"
 csv = "1.4.0"
 physical_constants = "0.5.0"

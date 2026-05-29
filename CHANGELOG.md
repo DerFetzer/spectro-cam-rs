@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-29
+
 ### Added
 
 - Pause/resume camera stream
@@ -31,7 +33,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Initial release
 
 
-[unreleased]: https://github.com/DerFetzer/spectro-cam-rs/compare/0.2.0...HEAD
+[unreleased]: https://github.com/DerFetzer/spectro-cam-rs/compare/0.3.0...HEAD
 [#10]: https://github.com/DerFetzer/spectro-cam-rs/issues/10
+[0.3.0]: https://github.com/DerFetzer/spectro-cam-rs/releases/tag/0.3.0
 [0.2.0]: https://github.com/DerFetzer/spectro-cam-rs/releases/tag/0.2.0
 [0.1.0]: https://github.com/DerFetzer/spectro-cam-rs/releases/tag/0.1.0
